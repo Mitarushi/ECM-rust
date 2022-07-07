@@ -6,7 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ibig = { git = "https://github.com/tczajka/ibig-rs.git" }
 rand = "0.8.5"
-num-bigint = { version = "0.4.3", features = ["rand"] }
-num-traits = "0.2.15"
-num-integer = "0.1.45"
+
+[profile.release]
+opt-level = 3
+overflow-checks = false
+lto = true

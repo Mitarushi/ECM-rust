@@ -1,13 +1,11 @@
-mod modint;
+use std::str::FromStr;
+use ibig::modular::{ModuloRing, Modulo};
+use ibig::{ubig, UBig};
+use rand::{thread_rng, Rng};
+
 mod elliptic_curve;
 
-use std::str::FromStr;
-use num_bigint;
-use num_bigint::{BigInt, UniformBigInt};
-use num_traits::{One, Zero};
-use rand::distributions::uniform::UniformSampler;
 use crate::elliptic_curve::{EllipticPoint, EllipticCurve};
-use crate::modint::Montgomery;
 
 fn eratosthenes(n: u64) -> Vec<u64> {
     let mut primes = vec![true; n as usize];
@@ -45,34 +43,11 @@ fn segment_sieve(n: u64, d: u64) -> Vec<u64> {
         .collect()
 }
 
-fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
-    if a.is_zero() {
-        return b.clone();
-    }
-    if b.is_zero() {
-        return a.clone();
-    }
-    let v1 = a.trailing_zeros().unwrap();
-    let v2 = b.trailing_zeros().unwrap();
-    let beta = std::cmp::min(v1, v2);
-    let mut a = a >> v1;
-    let mut b = b >> v2;
-    while a != b {
-        if &a < &b {
-            std::mem::swap(&mut a, &mut b);
-        }
-        let v = &a - &b;
-        a = b;
-        b = &v >> &v.trailing_zeros().unwrap();
-    }
-    a << beta
-}
-
-fn mod_inv(a: &BigInt, n: &BigInt) -> BigInt {
-    if a.is_one() {
-        BigInt::one()
+fn mod_inv(a: &UBig, n: &UBig) -> UBig {
+    if a == &ubig!(1) {
+        ubig!(1)
     } else {
-        n + (-n * mod_inv(&(n % a), a) + 1) / a
+        n - (n * mod_inv(&(n % a), a)) / a
     }
 }
 
@@ -84,118 +59,113 @@ fn pow_less_than(p: u64, n: u64) -> u64 {
     r
 }
 
-fn ecm(n: &BigInt, b1: u64, b2: u64, d: u64) -> BigInt {
-    let mr = Montgomery::new(n.clone());
+fn cube<'a>(x: &'a Modulo<'a>) -> Modulo<'a> {
+    x * x * x
+}
 
-    let mut rng = rand::thread_rng();
-    let sampler = UniformBigInt::new(BigInt::from(6u64), BigInt::min(n.clone(), BigInt::from(100000000000000000u64)));
-
+fn ecm(n: &UBig, b1: u64, b2: u64, d: u64) -> UBig {
+    let ring = ModuloRing::new(&n);
     let primes = eratosthenes(b1);
 
     loop {
-        let sigma = mr.convert_bigint(&sampler.sample(&mut rng));
-        // let sigma = mr.convert_bigint(&BigInt::from_str("8689346476060549").unwrap());
-        println!("{}", mr.val(&sigma));
-        let u = mr.sub(&mr.square(&sigma), &mr.convert_u64(5));
-        let v = mr.mul(&sigma, &mr.convert_u64(4));
-        let c_b = mr.mul(&mr.pow(&u, 3), &mr.mul(&v, &mr.convert_u64(4)));
-        let tmp = mr.pow(&mr.sub(&v, &u), 3);
-        let tmp = mr.mul(&tmp, &mr.add(&mr.mul(&u, &mr.convert_u64(3)), &v));
-        let c_a = mr.sub(&tmp, &mr.add(&c_b, &c_b));
-        let g = gcd(&mr.val(&c_b), &n);
-        if !&g.is_one() {
+        let sigma = ring.from(thread_rng().gen_range(ubig!(6)..n.clone()));
+        // let sigma = ring.from(UBig::from_str("8689346476060549").unwrap());
+        println!("{:?}", sigma);
+        let u = &sigma * &sigma - ring.from(5);
+        let v = &sigma * ring.from(4);
+        let c_b = cube(&u) * &v * ring.from(4);
+        let tmp = &v - &u;
+        let c_a = cube(&tmp) * (&u * ring.from(3) + &v) - (&c_b + &c_b);
+        let g = n.gcd(&c_b.residue());
+        if &g != &ubig!(1) {
             if &g == n {
                 continue;
             } else {
                 return g;
             }
         }
-        let c = mr.mul(&c_a, &mr.convert_bigint(&mod_inv(&mr.val(&c_b), &n)));
+        let c = &c_a * ring.from(&mod_inv(&c_b.residue(), &n));
 
-        let mut q = EllipticPoint::new(mr.pow(&u, 3), mr.pow(&v, 3));
+        let mut q = EllipticPoint::new(cube(&u), cube(&v));
         let curve = EllipticCurve::new(c);
 
         for p in primes.iter() {
             let p_pow = pow_less_than(*p, b1);
-            q = curve.mul(&q, p_pow, &mr);
+            q = curve.mul(&q, p_pow, &ring);
         }
 
-        let g = gcd(&mr.val(&q.z), &n);
-        if &BigInt::one() < &g && &g < n {
+        let g = n.gcd(&q.z.residue());
+        if  &ubig!(1) < &g && &g < n {
             return g;
         }
 
-        let mut s = vec![curve.double_h(&q, &mr)];
-        s.push(curve.double_h(&s[0], &mr));
+        let mut s = vec![curve.double_h(&q, &ring)];
+        s.push(curve.double_h(&s[0], &ring));
         let mut beta = Vec::new();
         for i in 0..d as usize {
             if i > 1 {
-                s.push(curve.add_h(&s[i - 1], &s[0], &s[i - 2], &mr));
+                s.push(curve.add_h(&s[i - 1], &s[0], &s[i - 2]));
             }
-            beta.push(mr.mul(&s[i].x, &s[i].z));
+            beta.push(&s[i].x * &s[i].z);
         }
 
-        let mut h = mr.convert_u64(1);
+        let mut h = ring.from(1);
         let b = b1 - 1;
 
-        let mut t = curve.mul(&q, b - 2 * d, &mr);
-        let mut r = curve.mul(&q, b, &mr);
+        let mut t = curve.mul(&q, b - 2 * d, &ring);
+        let mut r = curve.mul(&q, b, &ring);
 
         let mut u = b;
         while u < b2 {
-            let alpha = mr.mul(&r.x, &r.z);
+            let alpha = &r.x * &r.z;
 
             for p2 in segment_sieve(u + 2, 2 * d - 1) {
                 let delta = ((p2 - u) / 2 - 1) as usize;
-                let tmp = mr.mul(&mr.sub(&r.x, &s[delta].x), &mr.add(&r.z, &s[delta].z));
-                let tmp = mr.sub(&tmp, &mr.sub(&alpha, &beta[delta]));
-                h = mr.mul(&h, &tmp);
+                h *= (&r.x - &s[delta].x) * (&r.z + &s[delta].z) - &alpha + &beta[delta];
             }
 
             let tmp = r.clone();
-            r = curve.add_h(&r, &s[d as usize - 1], &t, &mr);
+            r = curve.add_h(&r, &s[d as usize - 1], &t);
             t = tmp;
             u += 2 * d;
         }
 
-        let g = gcd(&mr.val(&h), &n);
-        if &BigInt::one() < &g && &g < n {
+        let g = n.gcd(&h.residue());
+        if &ubig!(1) < &g && &g < n {
             return g;
         }
     }
 }
 
-fn trial_division(n: &BigInt, k: u64) -> (Vec<BigInt>, BigInt) {
+fn trial_division(n: &UBig, k: u64) -> (Vec<UBig>, UBig) {
     let mut primes = Vec::new();
     let mut n = n.clone();
     for p in 2..k + 1 {
-        while &n % &BigInt::from(p) == BigInt::zero() {
-            n /= &BigInt::from(p);
-            primes.push(BigInt::from(p));
+        let p = UBig::from(p);
+        while &n % &p == ubig!(0) {
+            n /= &p;
+            primes.push(p.clone());
         }
     }
     (primes, n)
 }
 
-fn miller_rabin(n: &BigInt, k: u64) -> bool {
-    let mr = Montgomery::new(n.clone());
-    let d = (n - &BigInt::one()).trailing_zeros().unwrap();
-    let s = (n - &BigInt::one()) >> d;
-
-    let mut rng = rand::thread_rng();
-    let sampler = UniformBigInt::new(BigInt::from(2u64), n.clone());
+fn miller_rabin(n: &UBig, k: u64) -> bool {
+    let ring = ModuloRing::new(&n);
+    let d = (n - &ubig!(1)).trailing_zeros().unwrap();
+    let s = (n - &ubig!(1)) >> d;
 
     'outer: for _ in 0..k {
-        let a = mr.convert_bigint(&sampler.sample(&mut rng));
-        let mut x = mr.binary_pow(&a, &s);
+        let a = ring.from(thread_rng().gen_range(ubig!(2)..n.clone()));
+        let mut x = a.pow(&s);
 
-        if &mr.val(&x) == &BigInt::one()  || &(&mr.val(&x) + &BigInt::one()) == n{
+        if &x.residue() == &ubig!(1) || &(&x.residue() + &ubig!(1)) == n {
             continue;
         }
 
         for _ in 0..d - 1 {
-            x = mr.mul(&x, &x);
-            if &(&mr.val(&x) + &BigInt::one()) == n {
+            x = &x * &x;
+            if &(&x.residue() + &ubig!(1)) == n  {
                 continue 'outer;
             }
         }
@@ -204,20 +174,33 @@ fn miller_rabin(n: &BigInt, k: u64) -> bool {
     true
 }
 
-fn pow_check(n: &BigInt) -> Option<(BigInt, u64)> {
-    let max_k = n.bits();
+fn nth_root(x: &UBig, k: usize) -> UBig {
+    let mut y = ubig!(1) << (x.bit_len() / k + 1);
+    let mut q = x / &y.pow(k - 1);
+    loop {
+        y = (&y * UBig::from(k) + &q - &y) / UBig::from(k);
+        let z = y.pow(k - 1);
+        q = x / &z;
+        if &q >= &y {
+            return y
+        }
+    }
+}
+
+fn pow_check(n: &UBig) -> Option<(UBig, usize)> {
+    let max_k = n.bit_len();
 
     for k in (1..max_k).rev() {
-        let root = n.nth_root(k as u32);
-        if &root.pow(k as u32) == n {
+        let root = nth_root(n, k);
+        if &root.pow(k) == n {
             return Some((root, k));
         }
     }
     None
 }
 
-fn factorize_sub(n: &BigInt, b1:u64, b2: u64, d: u64) -> Vec<BigInt> {
-    if n.is_one() {
+fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
+    if n == &ubig!(1) {
         return vec![];
     }
 
@@ -238,8 +221,8 @@ fn factorize_sub(n: &BigInt, b1:u64, b2: u64, d: u64) -> Vec<BigInt> {
     }
 }
 
-fn factorize(n :&BigInt, b1: u64, b2: u64, d: u64) -> Vec<BigInt> {
-    let (mut result, mut n) = trial_division(n, 10000);
+fn factorize(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
+    let (mut result, n) = trial_division(n, 10000);
     result.append(&mut factorize_sub(&n, b1, b2, d));
     result.sort();
     result
@@ -249,7 +232,7 @@ fn factorize(n :&BigInt, b1: u64, b2: u64, d: u64) -> Vec<BigInt> {
 fn main() {
     println!("Hello, world!");
     println!("{:?}", eratosthenes(100));
-    println!("{:?}", factorize(&BigInt::from_str("627057063764139831929324851379409869378845668175598843037877190478889006888518431438644711527536922839520331484815861906173161536477065546885468336421475511783984145060592245840032548652210559519683510271").unwrap(),
-                               100000000, 1000000000, 10000000));
+    println!("{:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
+                               1000000, 100000000, 100000));
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
 }

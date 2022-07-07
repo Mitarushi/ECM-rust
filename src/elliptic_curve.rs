@@ -1,76 +1,69 @@
-use crate::modint::{ModInt, Montgomery};
+use ibig::modular::{ModuloRing, Modulo};
 
 #[derive(Debug, Clone)]
-pub struct EllipticPoint  {
-    pub x: ModInt,
-    pub z: ModInt,
+pub struct EllipticPoint<'a> {
+    pub x: Modulo<'a>,
+    pub z: Modulo<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub struct EllipticCurve  {
-    pub c: ModInt,
+pub struct EllipticCurve<'a> {
+    pub c: Modulo<'a>,
 }
 
-impl EllipticPoint {
-    pub fn new(x: ModInt, z: ModInt) -> Self {
+impl<'a> EllipticPoint<'a> {
+    pub fn new(x: Modulo<'a>, z: Modulo<'a>) -> Self {
         EllipticPoint { x, z }
     }
-
-    pub fn zero() -> Self {
-        EllipticPoint { x: ModInt::zero(), z: ModInt::zero() }
-    }
 }
 
-impl EllipticCurve {
-    pub fn new(c: ModInt) -> Self {
+impl<'a> EllipticCurve<'a> {
+    pub fn new(c: Modulo<'a>) -> Self {
         EllipticCurve { c }
     }
 
-    pub fn add_h(&self, p1: &EllipticPoint, p2: &EllipticPoint, pm: &EllipticPoint,
-                 mr: &Montgomery) -> EllipticPoint {
-        let t = mr.sub(&mr.mul(&p1.x, &p2.x), &mr.mul(&p1.z, &p2.z));
-        let x = mr.mul(&mr.square(&t), &pm.z);
-        let t = mr.sub(&mr.mul(&p1.x, &p2.z), &mr.mul(&p1.z, &p2.x));
-        let z = mr.mul(&mr.square(&t), &pm.x);
+    pub fn add_h(&self, p1: &EllipticPoint<'a>, p2: &EllipticPoint<'a>, pm: &EllipticPoint<'a>) -> EllipticPoint {
+        let t = &p1.x * &p2.x - &p1.z * &p2.z;
+        let x = &t * &t * &pm.z;
+        let t = &p1.x * &p2.z - &p1.z * &p2.x;
+        let z = &t * &t * &pm.x;
         EllipticPoint { x, z }
     }
 
-    pub fn double_h(&self, p: &EllipticPoint, mr: &Montgomery) -> EllipticPoint {
-        let x = mr.square(&mr.sub(&mr.square(&p.x), &mr.square(&p.z)));
-        let t = mr.add(&p.x, &mr.mul(&p.z, &self.c));
-        let t = mr.add(&mr.mul(&p.x, &t), &mr.square(&p.z));
-        let t = mr.mul(&mr.mul(&t, &p.x), &p.z);
-        let z = mr.mul(&t, &mr.convert_u64(4));
+    pub fn double_h(&'a self, p: &EllipticPoint<'a>, ring: &'a ModuloRing) -> EllipticPoint {
+        let t = &p.x * &p.x - &p.z * &p.z;
+        let x = &t * &t;
+        let z = (&p.x * (&p.x + &p.z * &self.c) + &p.z * &p.z) * &p.x * &p.z * ring.from(4);
         EllipticPoint { x, z }
     }
 
-    pub fn mul(&self, p: &EllipticPoint, n: u64, mr: &Montgomery) -> EllipticPoint {
+    pub fn mul(&'a self, p: &EllipticPoint<'a>, n: u64, ring: &'a ModuloRing) -> EllipticPoint {
         if n == 0 {
-            return EllipticPoint::zero();
+            return EllipticPoint::new(ring.from(0), ring.from(0));
         } else if n == 1 {
             return p.clone();
         } else if n == 2 {
-            return self.double_h(p, mr);
+            return self.double_h(p, ring);
         }
 
         let mut u = p.clone();
-        let mut t = self.double_h(p, mr);
+        let mut t = self.double_h(p, ring);
         let b = 64 - n.leading_zeros();
 
-        for j in (1 .. b-1).rev() {
+        for j in (1..b - 1).rev() {
             if (n >> j) & 1 == 1 {
-                u = self.add_h(&t, &u, p, mr);
-                t = self.double_h(&t, mr);
+                u = self.add_h(&t, &u, p);
+                t = self.double_h(&t, ring);
             } else {
-                t = self.add_h(&u, &t, p, mr);
-                u = self.double_h(&u, mr);
+                t = self.add_h(&u, &t, p);
+                u = self.double_h(&u, ring);
             }
         }
 
         if n & 1 == 1 {
-            self.add_h(&u, &t, p, mr)
+            self.add_h(&u, &t, p)
         } else {
-            self.double_h(&u, mr)
+            self.double_h(&u, ring)
         }
     }
 }
