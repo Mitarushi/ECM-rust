@@ -2,6 +2,7 @@ use std::str::FromStr;
 use ibig::modular::{ModuloRing, Modulo};
 use ibig::{ubig, UBig};
 use rand::{thread_rng, Rng};
+use rayon::prelude::*;
 
 mod elliptic_curve;
 
@@ -63,79 +64,120 @@ fn cube<'a>(x: &'a Modulo<'a>) -> Modulo<'a> {
     x * x * x
 }
 
-fn ecm(n: &UBig, b1: u64, b2: u64, d: u64) -> UBig {
+fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
     let ring = ModuloRing::new(&n);
     let primes = eratosthenes(b1);
 
+    let sigma = ring.from(thread_rng().gen_range(ubig!(6)..n.clone()));
+    // let sigma = ring.from(UBig::from_str("8689346476060549").unwrap());
+    println!("curve sigma: {:?}", sigma);
+    let u = &sigma * &sigma - ring.from(5);
+    let v = &sigma * ring.from(4);
+    let c_b = cube(&u) * &v * ring.from(4);
+    let tmp = &v - &u;
+    let c_a = cube(&tmp) * (&u * ring.from(3) + &v) - (&c_b + &c_b);
+    let g = n.gcd(&c_b.residue());
+    if &g != &ubig!(1) {
+        return if &g == n {
+            None
+        } else {
+            Some(g)
+        }
+    }
+    let c = &c_a * ring.from(&mod_inv(&c_b.residue(), &n));
+
+    let mut q = EllipticPoint::new(cube(&u), cube(&v));
+    let curve = EllipticCurve::new(c);
+
+    for p in primes.iter() {
+        let p_pow = pow_less_than(*p, b1);
+        q = curve.mul(&q, p_pow, &ring);
+    }
+
+    let g = n.gcd(&q.z.residue());
+    if &ubig!(1) < &g && &g < n {
+        return Some(g);
+    }
+
+    let mut s = vec![curve.double_h(&q, &ring)];
+    s.push(curve.double_h(&s[0], &ring));
+    let mut beta = Vec::new();
+    for i in 0..d as usize {
+        if i > 1 {
+            s.push(curve.add_h(&s[i - 1], &s[0], &s[i - 2]));
+        }
+        beta.push(&s[i].x * &s[i].z);
+    }
+
+    let mut h = ring.from(1);
+    let b = b1 - 1;
+
+    let mut t = curve.mul(&q, b - 2 * d, &ring);
+    let mut r = curve.mul(&q, b, &ring);
+
+    let mut u = b;
+    while u < b2 {
+        let alpha = &r.x * &r.z;
+
+        for p2 in segment_sieve(u + 2, 2 * d - 1) {
+            let delta = ((p2 - u) / 2 - 1) as usize;
+            h *= (&r.x - &s[delta].x) * (&r.z + &s[delta].z) - &alpha + &beta[delta];
+        }
+
+        let tmp = r.clone();
+        r = curve.add_h(&r, &s[d as usize - 1], &t);
+        t = tmp;
+        u += 2 * d;
+    }
+
+    let g = n.gcd(&h.residue());
+    if &ubig!(1) < &g && &g < n {
+        return Some(g);
+    }
+    None
+}
+
+fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, k: usize) -> Vec<UBig> {
     loop {
-        let sigma = ring.from(thread_rng().gen_range(ubig!(6)..n.clone()));
-        // let sigma = ring.from(UBig::from_str("8689346476060549").unwrap());
-        println!("{:?}", sigma);
-        let u = &sigma * &sigma - ring.from(5);
-        let v = &sigma * ring.from(4);
-        let c_b = cube(&u) * &v * ring.from(4);
-        let tmp = &v - &u;
-        let c_a = cube(&tmp) * (&u * ring.from(3) + &v) - (&c_b + &c_b);
-        let g = n.gcd(&c_b.residue());
-        if &g != &ubig!(1) {
-            if &g == n {
-                continue;
-            } else {
-                return g;
+        let result_tmp = (0..k).into_par_iter().map(|_| {
+            ecm_sub(n, b1, b2, d)
+        }).collect::<Vec<_>>();
+
+        let is_end = result_tmp.iter().any(|x| x.is_some());
+        if is_end {
+            let mut result = Vec::new();
+            for r in result_tmp {
+                if let Some(mut r) = r {
+                    println!("divisor: {:?}", r);
+                    if result.is_empty() {
+                        result.push(r.clone());
+                        result.push(n / &r)
+                    } else {
+                        let mut next_result = Vec::new();
+                        for  s in result.iter() {
+                            let g = s.gcd(&r);
+                            if &g != &ubig!(1) {
+                                if &g != s {
+                                    next_result.push(s / &g);
+                                    next_result.push(g.clone());
+                                } else {
+                                    next_result.push(s.clone());
+                                }
+                                r /= &g;
+                            } else {
+                                next_result.push(s.clone());
+                            }
+                        }
+                        result.clear();
+                        result.append(&mut next_result);
+                    }
+                }
             }
-        }
-        let c = &c_a * ring.from(&mod_inv(&c_b.residue(), &n));
-
-        let mut q = EllipticPoint::new(cube(&u), cube(&v));
-        let curve = EllipticCurve::new(c);
-
-        for p in primes.iter() {
-            let p_pow = pow_less_than(*p, b1);
-            q = curve.mul(&q, p_pow, &ring);
-        }
-
-        let g = n.gcd(&q.z.residue());
-        if  &ubig!(1) < &g && &g < n {
-            return g;
-        }
-
-        let mut s = vec![curve.double_h(&q, &ring)];
-        s.push(curve.double_h(&s[0], &ring));
-        let mut beta = Vec::new();
-        for i in 0..d as usize {
-            if i > 1 {
-                s.push(curve.add_h(&s[i - 1], &s[0], &s[i - 2]));
-            }
-            beta.push(&s[i].x * &s[i].z);
-        }
-
-        let mut h = ring.from(1);
-        let b = b1 - 1;
-
-        let mut t = curve.mul(&q, b - 2 * d, &ring);
-        let mut r = curve.mul(&q, b, &ring);
-
-        let mut u = b;
-        while u < b2 {
-            let alpha = &r.x * &r.z;
-
-            for p2 in segment_sieve(u + 2, 2 * d - 1) {
-                let delta = ((p2 - u) / 2 - 1) as usize;
-                h *= (&r.x - &s[delta].x) * (&r.z + &s[delta].z) - &alpha + &beta[delta];
-            }
-
-            let tmp = r.clone();
-            r = curve.add_h(&r, &s[d as usize - 1], &t);
-            t = tmp;
-            u += 2 * d;
-        }
-
-        let g = n.gcd(&h.residue());
-        if &ubig!(1) < &g && &g < n {
-            return g;
+            return result;
         }
     }
 }
+
 
 fn trial_division(n: &UBig, k: u64) -> (Vec<UBig>, UBig) {
     let mut primes = Vec::new();
@@ -165,7 +207,7 @@ fn miller_rabin(n: &UBig, k: u64) -> bool {
 
         for _ in 0..d - 1 {
             x = &x * &x;
-            if &(&x.residue() + &ubig!(1)) == n  {
+            if &(&x.residue() + &ubig!(1)) == n {
                 continue 'outer;
             }
         }
@@ -182,7 +224,7 @@ fn nth_root(x: &UBig, k: usize) -> UBig {
         let z = y.pow(k - 1);
         q = x / &z;
         if &q >= &y {
-            return y
+            return y;
         }
     }
 }
@@ -208,10 +250,11 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
     if miller_rabin(&p, 100) {
         vec![p; k as usize]
     } else {
-        let q = ecm(&p, b1, b2, d);
-        println!("{}", q);
-        let mut result = factorize_sub(&q, b1, b2, d);
-        result.append(&mut factorize_sub(&(n / &q), b1, b2, d));
+        let q = ecm(&p, b1, b2, d, 16);
+        let mut result = Vec::new();
+        for p in q {
+            result.append(&mut factorize_sub(&p, b1, b2, d));
+        }
 
         let mut results = result.clone();
         for _ in 0..k - 1 {
@@ -230,9 +273,10 @@ fn factorize(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
 
 
 fn main() {
-    println!("Hello, world!");
-    println!("{:?}", eratosthenes(100));
-    println!("{:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                               1000000, 100000000, 100000));
+    // println!("Hello, world!");
+    // println!("{:?}", eratosthenes(100));
+    println!("result: {:?}", factorize(&UBig::from_str("104276097940350979745397963006118536633179959300798689831876212780263302998183").unwrap(),
+                                       1000000, 100000000, 100000));
+
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
 }

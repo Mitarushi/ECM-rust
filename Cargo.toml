@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 ibig = { git = "https://github.com/tczajka/ibig-rs.git" }
 rand = "0.8.5"
+rayon = "1.5.3"
 
 [profile.release]
 opt-level = 3
