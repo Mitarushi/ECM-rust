@@ -30,10 +30,15 @@ impl<'a> EllipticCurve<'a> {
         EllipticPoint { x, z }
     }
 
-    pub fn double_h(&'a self, p: &EllipticPoint<'a>, ring: &'a ModuloRing) -> EllipticPoint {
-        let t = &p.x * &p.x - &p.z * &p.z;
+    pub fn double_h(&'a self, p: &EllipticPoint<'a>) -> EllipticPoint {
+        let x2 = &p.x * &p.x;
+        let z2 = &p.z * &p.z;
+        let xz = &p.x * &p.z;
+        let t = &x2 - &z2;
         let x = &t * &t;
-        let z = (&p.x * (&p.x + &p.z * &self.c) + &p.z * &p.z) * &p.x * &p.z * ring.from(4);
+        let t = (&x2 + &xz * &self.c + &z2) * &xz;
+        let t = &t + &t;
+        let z = &t + &t;
         EllipticPoint { x, z }
     }
 
@@ -43,27 +48,27 @@ impl<'a> EllipticCurve<'a> {
         } else if n == 1 {
             return p.clone();
         } else if n == 2 {
-            return self.double_h(p, ring);
+            return self.double_h(p);
         }
 
         let mut u = p.clone();
-        let mut t = self.double_h(p, ring);
+        let mut t = self.double_h(p);
         let b = 64 - n.leading_zeros();
 
         for j in (1..b - 1).rev() {
             if (n >> j) & 1 == 1 {
                 u = self.add_h(&t, &u, p);
-                t = self.double_h(&t, ring);
+                t = self.double_h(&t);
             } else {
                 t = self.add_h(&u, &t, p);
-                u = self.double_h(&u, ring);
+                u = self.double_h(&u);
             }
         }
 
         if n & 1 == 1 {
             self.add_h(&u, &t, p)
         } else {
-            self.double_h(&u, ring)
+            self.double_h(&u)
         }
     }
 }

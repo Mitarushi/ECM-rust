@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::time::Instant;
 use ibig::modular::{ModuloRing, Modulo};
 use ibig::{ubig, UBig};
 use rand::{thread_rng, Rng};
@@ -99,8 +100,8 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
         return Some(g);
     }
 
-    let mut s = vec![curve.double_h(&q, &ring)];
-    s.push(curve.double_h(&s[0], &ring));
+    let mut s = vec![curve.double_h(&q)];
+    s.push(curve.double_h(&s[0]));
     let mut beta = Vec::new();
     for i in 0..d as usize {
         if i > 1 {
@@ -250,10 +251,11 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
     if miller_rabin(&p, 100) {
         vec![p; k as usize]
     } else {
-        let q = ecm(&p, b1, b2, d, 16);
+        let q = ecm(&p, b1, b2, d, 48);
         let mut result = Vec::new();
         for p in q {
             result.append(&mut factorize_sub(&p, b1, b2, d));
+            // result.push(p);
         }
 
         let mut results = result.clone();
@@ -275,8 +277,10 @@ fn factorize(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
 fn main() {
     // println!("Hello, world!");
     // println!("{:?}", eratosthenes(100));
-    println!("result: {:?}", factorize(&UBig::from_str("104276097940350979745397963006118536633179959300798689831876212780263302998183").unwrap(),
-                                       1000000, 100000000, 100000));
+    let start_time = Instant::now();
+    println!("result: {:?}", factorize(&UBig::from_str("627057063764139831929324851379409869378845668175598843037877190478889006888518431438644711527536922839520331484815861906173161536477065546885468336421475511783984145060592245840032548652210559519683510271").unwrap(),
+                                       10000000, 1000000000, 100000));
+    println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
 }
