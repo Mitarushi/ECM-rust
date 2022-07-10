@@ -1,4 +1,4 @@
-use ibig::modular::{ModuloRing, Modulo};
+use ibig::modular::{Modulo, ModuloRing};
 
 #[derive(Debug, Clone)]
 pub struct EllipticPoint<'a> {
@@ -23,9 +23,11 @@ impl<'a> EllipticCurve<'a> {
     }
 
     pub fn add_h(&self, p1: &EllipticPoint<'a>, p2: &EllipticPoint<'a>, pm: &EllipticPoint<'a>) -> EllipticPoint {
-        let t = &p1.x * &p2.x - &p1.z * &p2.z;
+        let t1 = (&p1.x - &p1.z) * (&p2.x + &p2.z);
+        let t2 = (&p1.x + &p1.z) * (&p2.x - &p2.z);
+        let t = &t1 + &t2;
         let x = &t * &t * &pm.z;
-        let t = &p1.x * &p2.z - &p1.z * &p2.x;
+        let t = &t1 - &t2;
         let z = &t * &t * &pm.x;
         EllipticPoint { x, z }
     }
