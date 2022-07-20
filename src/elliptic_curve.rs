@@ -33,14 +33,13 @@ impl<'a> EllipticCurve<'a> {
     }
 
     pub fn double_h(&'a self, p: &EllipticPoint<'a>) -> EllipticPoint {
-        let x2 = &p.x * &p.x;
-        let z2 = &p.z * &p.z;
-        let xz = &p.x * &p.z;
-        let t = &x2 - &z2;
-        let x = &t * &t;
-        let t = (&x2 + &xz * &self.c + &z2) * &xz;
-        let t = &t + &t;
-        let z = &t + &t;
+        let t = &p.x + &p.z;
+        let u = &t * &t;
+        let t = &p.x - &p.z;
+        let v = &t * &t;
+        let t = &self.c * (&u - &v) + &v;
+        let x = &u * &v;
+        let z = (&u - &v) * &t;
         EllipticPoint { x, z }
     }
 
