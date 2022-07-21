@@ -1,13 +1,18 @@
 use std::str::FromStr;
 use std::time::Instant;
-use ibig::modular::{ModuloRing, Modulo};
+
 use ibig::{ubig, UBig};
-use rand::{thread_rng, Rng};
+use ibig::modular::{Modulo, ModuloRing};
+use rand::{Rng, thread_rng};
 use rayon::prelude::*;
 
-mod elliptic_curve;
+use crate::elliptic_curve::{EllipticCurve, EllipticPoint};
+use crate::poly::Poly;
+use crate::utils::mod_inv;
 
-use crate::elliptic_curve::{EllipticPoint, EllipticCurve};
+mod elliptic_curve;
+mod poly;
+mod utils;
 
 fn eratosthenes(n: u64) -> Vec<u64> {
     let mut primes = vec![true; n as usize];
@@ -45,14 +50,6 @@ fn segment_sieve(n: u64, d: u64) -> Vec<u64> {
         .collect()
 }
 
-fn mod_inv(a: &UBig, n: &UBig) -> UBig {
-    if a == &ubig!(1) {
-        ubig!(1)
-    } else {
-        n - (n * mod_inv(&(n % a), a)) / a
-    }
-}
-
 fn pow_less_than(p: u64, n: u64) -> u64 {
     let mut r = 1;
     while r * p <= n {
@@ -83,9 +80,9 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
             None
         } else {
             Some(g)
-        }
+        };
     }
-    let c = &c_a * ring.from(&mod_inv(&c_b.residue(), &n));
+    let c = &c_a * mod_inv(&c_b, &ring);
 
     let mut q = EllipticPoint::new(cube(&u), cube(&v));
     let curve = EllipticCurve::new(c);
@@ -155,7 +152,7 @@ fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, k: usize) -> Vec<UBig> {
                         result.push(n / &r)
                     } else {
                         let mut next_result = Vec::new();
-                        for  s in result.iter() {
+                        for s in result.iter() {
                             let g = s.gcd(&r);
                             if &g != &ubig!(1) {
                                 if &g != s {
@@ -251,7 +248,7 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
     if miller_rabin(&p, 100) {
         vec![p; k as usize]
     } else {
-        let q = ecm(&p, b1, b2, d, 48);
+        let q = ecm(&p, b1, b2, d, 12);
         let mut result = Vec::new();
         for p in q {
             result.append(&mut factorize_sub(&p, b1, b2, d));
@@ -278,8 +275,8 @@ fn main() {
     // println!("Hello, world!");
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
-    println!("result: {:?}", factorize(&UBig::from_str("627057063764139831929324851379409869378845668175598843037877190478889006888518431438644711527536922839520331484815861906173161536477065546885468336421475511783984145060592245840032548652210559519683510271").unwrap(),
-                                       10000000, 1000000000, 100000));
+    println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
+                                       1000000, 30000000, 100000));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
