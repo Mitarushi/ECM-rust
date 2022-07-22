@@ -1,4 +1,5 @@
 use ibig::modular::{Modulo, ModuloRing};
+use crate::mod_inv;
 
 #[derive(Debug, Clone)]
 pub struct EllipticPoint<'a> {
@@ -14,6 +15,10 @@ pub struct EllipticCurve<'a> {
 impl<'a> EllipticPoint<'a> {
     pub fn new(x: Modulo<'a>, z: Modulo<'a>) -> Self {
         EllipticPoint { x, z }
+    }
+
+    pub fn affine_x(&self, ring: &'a ModuloRing) -> Modulo<'a> {
+        &self.x * mod_inv(&self.z, ring)
     }
 }
 

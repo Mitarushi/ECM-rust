@@ -1,3 +1,4 @@
+use std::mem::swap;
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -7,8 +8,8 @@ use rand::{Rng, thread_rng};
 use rayon::prelude::*;
 
 use crate::elliptic_curve::{EllipticCurve, EllipticPoint};
-use crate::poly::Poly;
-use crate::utils::mod_inv;
+use crate::poly::multipoint_evaluation_prod;
+use crate::utils::{gcd, mod_inv};
 
 mod elliptic_curve;
 mod poly;
@@ -97,35 +98,51 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
         return Some(g);
     }
 
-    let mut s = vec![curve.double_h(&q)];
-    s.push(curve.double_h(&s[0]));
-    let mut beta = Vec::new();
-    for i in 0..d as usize {
-        if i > 1 {
-            s.push(curve.add_h(&s[i - 1], &s[0], &s[i - 2]));
+    let mut s = q.clone();
+    let mut t = curve.double_h(&s);
+
+    let mut a = vec![s.affine_x(&ring)];
+    for i in 2..d {
+        if gcd(i, d) == 1 {
+            let g = n.gcd(&t.z.residue());
+            if &ubig!(1) == &g {
+                a.push(t.affine_x(&ring));
+            } else if &g != n {
+                return Some(g);
+            }
         }
-        beta.push(&s[i].x * &s[i].z);
+        s = curve.add_h(&t, &s, &q);
+        swap(&mut s, &mut t);
     }
 
+    let k = 1 << (64 - a.len().leading_zeros());
+    a.resize(k, ring.from(1));
+
+    let q2 = t;
+    let mut i = b1 / d + 1;
+
+    let stride = curve.double_h(&q2);
+    let mut s = curve.mul(&q2, i, &ring);
+    let mut t = curve.mul(&q2, i - 2, &ring);
+
     let mut h = ring.from(1);
-    let b = b1 - 1;
 
-    let mut t = curve.mul(&q, b - 2 * d, &ring);
-    let mut r = curve.mul(&q, b, &ring);
-
-    let mut u = b;
-    while u < b2 {
-        let alpha = &r.x * &r.z;
-
-        for p2 in segment_sieve(u + 2, 2 * d - 1) {
-            let delta = ((p2 - u) / 2 - 1) as usize;
-            h *= (&r.x - &s[delta].x) * (&r.z + &s[delta].z) - &alpha + &beta[delta];
+    while i * d < b2 {
+        let mut b = Vec::new();
+        for _ in 0..k {
+            let g = n.gcd(&s.z.residue());
+            if &ubig!(1) == &g {
+                b.push(s.affine_x(&ring));
+            } else if &g != n {
+                return Some(g);
+            }
+            t = curve.add_h(&s, &stride, &t);
+            swap(&mut s, &mut t);
+            i += 2;
         }
+        b.resize(k, ring.from(1));
 
-        let tmp = r.clone();
-        r = curve.add_h(&r, &s[d as usize - 1], &t);
-        t = tmp;
-        u += 2 * d;
+        h *= multipoint_evaluation_prod(&a, &b, &ring);
     }
 
     let g = n.gcd(&h.residue());
@@ -276,7 +293,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       1000000, 30000000, 100000));
+                                       1000000, 30000000, 13000));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
