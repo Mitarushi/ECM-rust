@@ -98,20 +98,22 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
         return Some(g);
     }
 
+    println!("hey!!!");
+
     let mut s = q.clone();
     let mut t = curve.double_h(&s);
 
-    let mut a = vec![s.affine_x(&ring)];
+    let mut a = vec![-s.affine_x(&ring)];
     for i in 2..d {
         if gcd(i, d) == 1 {
             let g = n.gcd(&t.z.residue());
             if &ubig!(1) == &g {
-                a.push(t.affine_x(&ring));
+                a.push(-t.affine_x(&ring));
             } else if &g != n {
                 return Some(g);
             }
         }
-        s = curve.add_h(&t, &s, &q);
+        s = curve.add_h(&t, &q, &s);
         swap(&mut s, &mut t);
     }
 
@@ -293,7 +295,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       1000000, 30000000, 13000));
+                                       1000000, 100000000, 11000));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
