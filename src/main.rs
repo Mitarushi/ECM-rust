@@ -86,7 +86,7 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
     let c = &c_a * mod_inv(&c_b, &ring);
 
     let mut q = EllipticPoint::new(cube(&u), cube(&v));
-    let curve = EllipticCurve::new(c);
+    let curve = EllipticCurve::new(c, &ring);
 
     for p in primes.iter() {
         let p_pow = pow_less_than(*p, b1);

@@ -24,7 +24,8 @@ impl<'a> EllipticPoint<'a> {
 }
 
 impl<'a> EllipticCurve<'a> {
-    pub fn new(c: Modulo<'a>) -> Self {
+    pub fn new(c: Modulo<'a>, ring: &'a ModuloRing) -> Self {
+        let c = (c + ring.from(2)) * mod_inv(&ring.from(4), ring);
         EllipticCurve { c }
     }
 
@@ -39,14 +40,14 @@ impl<'a> EllipticCurve<'a> {
     }
 
     pub fn double_h(&'a self, p: &EllipticPoint<'a>) -> EllipticPoint {
-        let x2 = &p.x * &p.x;
-        let z2 = &p.z * &p.z;
-        let xz = &p.x * &p.z;
-        let t = &x2 - &z2;
-        let x = &t * &t;
-        let t = (&x2 + &xz * &self.c + &z2) * &xz;
-        let t = &t + &t;
-        let z = &t + &t;
+        let u = &p.x + &p.z;
+        let u = &u * &u;
+        let v = &p.x - &p.z;
+        let v = &v * &v;
+        let k = &u - &v;
+        let t = &self.c * &k + &v;
+        let x = &u * &v;
+        let z = &k * &t;
         EllipticPoint { x, z }
     }
 
