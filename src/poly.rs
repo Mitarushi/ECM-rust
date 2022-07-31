@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use ibig::modular::{Modulo, ModuloRing};
 use ibig::UBig;
 use rug::{Integer, integer::Order};
@@ -59,18 +61,61 @@ impl<'a> Poly<'a> {
     pub fn zero(ring: &'a ModuloRing) -> Self {
         Poly::new(vec![], ring)
     }
-}
 
-impl<'a> std::ops::Mul for &Poly<'a> {
-    type Output = Poly<'a>;
-    fn mul(self, rhs: Self) -> Self::Output {
+    fn large_mul(&self, rhs: &Self) -> Self {
         let n = self.a.len() + rhs.a.len() - 1;
-        let padding = self.mod_log * 2 + (64 - n.leading_zeros() as usize) / 8 + 11;
+        let padding = self.mod_log * 2 + (64 - n.leading_zeros() as usize) / 8 + 1;
         let a = self.to_rug(padding);
         let b = rhs.to_rug(padding);
         let mut result = Poly::from_rug(&(a * b), padding, self.ring);
         result.set_len(n, self.ring);
         result
+    }
+
+    fn small_mul(&self, rhs: &Self) -> Self {
+        let mut result_a = vec![self.ring.from(0); self.a.len() + rhs.a.len() - 1];
+        for (i, a) in self.a.iter().enumerate() {
+            for (j, b) in rhs.a.iter().enumerate() {
+                result_a[i + j] += a * b;
+            }
+        }
+        Poly::new(result_a, self.ring)
+    }
+
+    pub fn reverse(&self) -> Self {
+        let mut result = self.clone();
+        result.a.reverse();
+        result
+    }
+
+    pub fn inv(&self, degree: usize) -> Self {
+        assert_eq!(self.a[0].residue(), ibig::ubig!(1));
+
+        let mut k = 1;
+        let mut g = Poly::new(vec![self.ring.from(1)], self.ring);
+        while k < degree {
+            k *= 2;
+            let mut f = self.clone();
+            f.truncate(k);
+            let mut fg = &f * &g;
+            fg.truncate(k);
+            fg = -fg;
+            fg.a[0] += self.ring.from(2);
+            g = &fg * &g;
+            g.truncate(k);
+        }
+        g
+    }
+}
+
+impl<'a> std::ops::Mul for &Poly<'a> {
+    type Output = Poly<'a>;
+    fn mul(self, rhs: Self) -> Self::Output {
+        if self.a.len().min(rhs.a.len()) <= 16 {
+            self.small_mul(rhs)
+        } else {
+            self.large_mul(rhs)
+        }
     }
 }
 
@@ -99,6 +144,50 @@ impl<'a> std::ops::Neg for Poly<'a> {
         result
     }
 }
+
+// pub struct multipoint_evaluation<'a> {
+//     pub n: usize,
+//     pub mul_table: Vec<Poly<'a>>,
+//     ring: &'a ModuloRing,
+// }
+//
+// impl<'a> multipoint_evaluation<'a> {
+//     pub fn new(point1: &Vec<Modulo<'a>>, ring: &'a ModuloRing) -> Self {
+//         let n = point1.len();
+//         assert!(n.is_power_of_two());
+//
+//         let mut mul_table = vec![Poly::zero(ring); n * 2];
+//
+//         for i in 0..n {
+//             mul_table[i + n] = Poly::monic_linear(point1[i].clone(), ring);
+//         }
+//
+//         for i in (1..n).rev() {
+//             mul_table[i] = &mul_table[i * 2] * &mul_table[i * 2 + 1];
+//         }
+//
+//         multipoint_evaluation { n, mul_table, ring }
+//     }
+//
+//     fn prod(&self, a: Vec<Poly<'a>>) -> Poly<'a> {
+//         let mut a = a;
+//         let mut k = self.n / 2;
+//         while k > 0 {
+//             for i in 0..k {
+//                 a[i] = &a[i * 2] * &a[i * 2 + 1];
+//             }
+//             k /= 2;
+//         }
+//         a.into_iter().nth(0).unwrap()
+//     }
+//
+//     pub fn eval(&self, point2: &Vec<Modulo<'a>>) -> Modulo<'a> {
+//         let mut up_tree_t = vec![Poly::zero(self.ring); self.n * 2];
+//         up_tree_t[1] = self.mul_table[1].inv(self.n);
+//
+//         None
+//     }
+// }
 
 pub fn multipoint_evaluation_prod<'a>(point1: &Vec<Modulo<'a>>, point2: &Vec<Modulo<'a>>, ring: &'a ModuloRing) -> Modulo<'a> {
     let n = point1.len();
