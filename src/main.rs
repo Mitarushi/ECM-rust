@@ -8,7 +8,7 @@ use rand::{Rng, thread_rng};
 use rayon::prelude::*;
 
 use crate::elliptic_curve::{EllipticCurve, EllipticPoint};
-use crate::poly::multipoint_evaluation_prod;
+use crate::poly::MultipointEvaluation;
 use crate::utils::{gcd, mod_inv};
 
 mod elliptic_curve;
@@ -30,24 +30,6 @@ fn eratosthenes(n: u64) -> Vec<u64> {
         .enumerate()
         .filter(|&(_, &p)| p)
         .map(|(i, _)| i as u64)
-        .collect()
-}
-
-fn segment_sieve(n: u64, d: u64) -> Vec<u64> {
-    let mut sieve = vec![true; d as usize];
-
-    let mut i = 2;
-    while i * i <= n + d {
-        let from = (n + i - 1) / i * i;
-        for j in (from..n + d).step_by(i as usize) {
-            sieve[(j - n) as usize] = false;
-        }
-        i += 1;
-    }
-    sieve.iter()
-        .enumerate()
-        .filter(|&(_, &x)| x)
-        .map(|(i, _)| i as u64 + n)
         .collect()
 }
 
@@ -149,6 +131,8 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
 
     let mut h = ring.from(1);
 
+    let multi_eval = MultipointEvaluation::new(&a, &ring);
+
     while i * d < b2 {
         let mut b = Vec::new();
         for _ in 0..k {
@@ -164,7 +148,7 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
         }
         b.resize(k, ring.from(1));
 
-        h *= multipoint_evaluation_prod(&a, &b, &ring);
+        h *= multi_eval.eval(&b);
     }
 
     let g = n.gcd(&h.residue());
@@ -346,7 +330,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       1000000, 100000000, 11000));
+                                       100000, 100000000, 5000));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
