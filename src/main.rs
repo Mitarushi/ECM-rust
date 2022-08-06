@@ -63,12 +63,32 @@ fn cube<'a>(x: &'a Modulo<'a>) -> Modulo<'a> {
     x * x * x
 }
 
+fn clean_divisor(a: &Vec<UBig>, n: &UBig) -> Vec<UBig> {
+    let mut result = vec![n.clone()];
+
+    for x in a.iter() {
+        let mut idx = 0;
+        while idx < result.len() {
+            let g = x.gcd(&result[idx]);
+
+            if &g != &ubig!(1) && &g != &result[idx] {
+                result[idx] /= &g;
+                result.push(g);
+            } else {
+                idx += 1;
+            }
+        }
+    }
+
+    result
+}
+
 fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Option<UBig> {
     let ring = ModuloRing::new(&n);
     let primes = eratosthenes(b1);
 
-    let sigma = ring.from(thread_rng().gen_range(ubig!(6)..n.clone()));
-    // let sigma = ring.from(UBig::from_str("8689346476060549").unwrap());
+    let sigma = ring.from(thread_rng().gen_range(6..1usize << 63));
+    // let sigma = ring.from(UBig::from_str("8170945836124664").unwrap());
     println!("curve sigma: {:?}", sigma);
     let u = &sigma * &sigma - ring.from(5);
     let v = &sigma * ring.from(4);
@@ -162,33 +182,9 @@ fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, k: usize) -> Vec<UBig> {
 
         let is_end = result_tmp.iter().any(|x| x.is_some());
         if is_end {
-            let mut result = Vec::new();
-            for r in result_tmp {
-                if let Some(mut r) = r {
-                    println!("divisor: {:?}", r);
-                    if result.is_empty() {
-                        result.push(r.clone());
-                        result.push(n / &r)
-                    } else {
-                        let mut next_result = Vec::new();
-                        for s in result.iter() {
-                            let g = s.gcd(&r);
-                            if &g != &ubig!(1) {
-                                if &g != s {
-                                    next_result.push(s / &g);
-                                    next_result.push(g.clone());
-                                } else {
-                                    next_result.push(s.clone());
-                                }
-                                r /= &g;
-                            } else {
-                                next_result.push(s.clone());
-                            }
-                        }
-                        result.clear();
-                        result.append(&mut next_result);
-                    }
-                }
+            let result = clean_divisor(&result_tmp.into_iter().filter_map(|x| x).collect(), n);
+            for x in result.iter() {
+                println!("divisor: {:?}", x);
             }
             return result;
         }
@@ -207,6 +203,58 @@ fn trial_division(n: &UBig, k: u64) -> (Vec<UBig>, UBig) {
         }
     }
     (primes, n)
+}
+
+fn pollard_rho(n: &UBig, k: u64, trial_num: u64) -> Vec<UBig> {
+    let ring = ModuloRing::new(&n);
+    let mut thread_rng = thread_rng();
+
+    let mut result = Vec::new();
+
+    fn f<'a>(x: &Modulo<'a>, c: &Modulo<'a>) -> Modulo<'a> {
+        x * x + c
+    }
+
+    for _ in 0..(trial_num / 50).max(1) {
+        let c = ring.from(thread_rng.gen_range(ubig!(1)..n - 1));
+
+        let mut a = ring.from(thread_rng.gen_range(ubig!(1)..n - 1));
+        let mut b = a.clone();
+
+        for _ in 0..k {
+            a = f(&a, &c);
+            b = f(&f(&b, &c), &c);
+
+            let g = n.gcd(&(&a - &b).residue());
+            if &ubig!(1) < &g && &g < n {
+                result.push(g);
+            }
+        }
+    }
+
+    for _ in 0..trial_num {
+        let c = ring.from(thread_rng.gen_range(ubig!(1)..n - 1));
+
+        let mut a = ring.from(thread_rng.gen_range(ubig!(1)..n - 1));
+        let mut b = a.clone();
+
+        let mut g = ring.from(1);
+        for _ in 0..k {
+            a = f(&a, &c);
+            b = f(&f(&b, &c), &c);
+
+            g *= &a - &b;
+        }
+
+        let g = n.gcd(&g.residue());
+        if &ubig!(1) < &g && &g < n {
+            result.push(g);
+        }
+    }
+
+
+    println!("{:?}", result);
+    clean_divisor(&result, n)
 }
 
 fn miller_rabin(n: &UBig, k: u64) -> bool {
@@ -284,7 +332,10 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
 
 fn factorize(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
     let (mut result, n) = trial_division(n, 10000);
-    result.append(&mut factorize_sub(&n, b1, b2, d));
+    let result_pollard = pollard_rho(&n, 500000, 10);
+    for i in result_pollard.into_iter() {
+        result.append(&mut factorize_sub(&i, b1, b2, d));
+    }
     result.sort();
     result
 }
