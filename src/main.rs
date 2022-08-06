@@ -316,13 +316,14 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
 
 fn factorize(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
     let (mut result, n) = trial_division(n, 10000);
-    let result_pollard = pollard_rho(&n, 500000, 10);
+    let result_pollard = pollard_rho(&n, 100000, 10);
     for i in result_pollard.into_iter() {
         result.append(&mut factorize_sub(&i, b1, b2, d));
     }
     result.sort();
     result
 }
+
 
 
 fn main() {
