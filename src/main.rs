@@ -325,13 +325,12 @@ fn factorize(n: &UBig, b1: u64, b2: u64, d: u64) -> Vec<UBig> {
 }
 
 
-
 fn main() {
     // println!("Hello, world!");
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       100000, 100000000, 5000));
+                                       200000, 10000000, 2310));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));

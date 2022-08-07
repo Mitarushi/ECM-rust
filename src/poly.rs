@@ -58,6 +58,10 @@ impl<'a> Poly<'a> {
         Poly::new(vec![], ring)
     }
 
+    pub fn one(ring: &'a ModuloRing) -> Self {
+        Poly::new(vec![ring.from(1)], ring)
+    }
+
     fn large_mul(&self, rhs: &Self) -> Self {
         let n = self.len() + rhs.len() - 1;
         let max_plus = self.len().min(rhs.len());
@@ -148,10 +152,31 @@ impl<'a> Poly<'a> {
         self.a.push(self.ring.from(0));
 
         for i in (0..self.len() - 1).rev() {
-            let t = self.a[i].clone();
-            self.a[i + 1] += t;
+            let p = &mut self.a[i + 1] as *mut Modulo<'a>;
+            unsafe {
+                *p += &self.a[i];
+            }
             self.a[i] *= a;
         }
+    }
+
+    pub fn inplace_mul_t_monic_linear(&mut self, a: &Modulo<'a>) {
+        for i in 0..self.len() - 1 {
+            self.a[i] *= a;
+            let p = &mut self.a[i] as *mut Modulo<'a>;
+            unsafe {
+                *p += &self.a[i + 1];
+            }
+        }
+        self.a.pop();
+    }
+
+    pub fn mul_t_inv_monic_linear(&self, rhs: &Self) -> Modulo<'a> {
+        let mut result = self.ring.from(0);
+        for (i, x) in rhs.a.iter().enumerate() {
+            result += &self.a[i + 1] * x;
+        }
+        result
     }
 }
 
@@ -197,7 +222,9 @@ impl<'a> std::ops::Neg for Poly<'a> {
 
 pub struct MultipointEvaluation<'a> {
     pub n: usize,
-    pub mul_table: Vec<Poly<'a>>,
+    pub a: Vec<Modulo<'a>>,
+    pub lower_mul_table: Vec<Poly<'a>>,
+    pub upper_mul_table: Vec<Poly<'a>>,
     pub all_inv: Poly<'a>,
     ring: &'a ModuloRing,
 
@@ -205,34 +232,44 @@ pub struct MultipointEvaluation<'a> {
 
 impl<'a> MultipointEvaluation<'a> {
     const B1: usize = 8;
+    const B2: usize = 16;
 
     pub fn new(point1: &Vec<Modulo<'a>>, ring: &'a ModuloRing) -> Self {
         let n = point1.len();
         assert!(n.is_power_of_two());
+        assert!(n >= Self::B1 && n >= Self::B2);
 
-        let mut mul_table = vec![Poly::zero(ring); n * 2];
+        let mut lower_mul_table = vec![Poly::zero(ring); n];
+        let mut upper_mul_table = vec![Poly::zero(ring); n / Self::B2 * 2];
 
-        for i in 0..n {
-            mul_table[i + n] = Poly::monic_linear(-point1[i].clone(), ring);
+        for i in (0..n).step_by(Self::B2) {
+            lower_mul_table[i] = Poly::one(ring);
+            for j in 0..Self::B2 - 1 {
+                lower_mul_table[i + j + 1] = lower_mul_table[i + j].clone();
+                lower_mul_table[i + j + 1].inplace_mul_monic_linear(&(-&(point1[i + j])));
+            }
+
+            upper_mul_table[(i + n) / Self::B2] = lower_mul_table[i + Self::B2 - 1].clone();
+            upper_mul_table[(i + n) / Self::B2].inplace_mul_monic_linear(&(-&point1[i + Self::B2 - 1]));
         }
 
-        for i in (1..n).rev() {
-            mul_table[i] = &mul_table[i * 2] * &mul_table[i * 2 + 1];
+        for i in (1..n / Self::B2).rev() {
+            upper_mul_table[i] = &upper_mul_table[i * 2] * &upper_mul_table[i * 2 + 1];
         }
-        let all_inv = Poly::inv(&mul_table[1], n);
+        let all_inv = Poly::inv(&upper_mul_table[1], n);
 
-        MultipointEvaluation { n, mul_table, all_inv, ring }
+        MultipointEvaluation { n, a: point1.clone(), lower_mul_table, upper_mul_table, all_inv, ring }
     }
 
     fn monic_linear_prod(&self, a: &Vec<Modulo<'a>>) -> Poly<'a> {
         let mut b = vec![Poly::zero(self.ring); self.n / Self::B1];
 
-        for i in 0..self.n / Self::B1 {
-            let mut t = Poly::new(vec![self.ring.from(1)], self.ring);
+        for i in (0..self.n).step_by(Self::B1) {
+            let mut t = Poly::one(self.ring);
             for j in 0..Self::B1 {
-                t.inplace_mul_monic_linear(&a[i * Self::B1 + j]);
+                t.inplace_mul_monic_linear(&a[i + j]);
             }
-            b[i] = t;
+            b[i / Self::B1] = t;
         }
 
         let mut k = b.len() / 2;
@@ -247,25 +284,30 @@ impl<'a> MultipointEvaluation<'a> {
 
     pub fn eval(&self, point2: &Vec<Modulo<'a>>) -> Modulo<'a> {
         let prod = self.monic_linear_prod(point2);
-        let prod = &prod - &self.mul_table[1];
+        let prod = &prod - &self.upper_mul_table[1];
 
-        let mut up_tree_t = vec![Poly::zero(self.ring); self.n];
+        let mut up_tree_t = vec![Poly::zero(self.ring); self.n / Self::B2];
         let mut t = &self.all_inv * &prod;
         t.div_set_len(self.n + 1);
         up_tree_t[0] = t.reverse();
 
         let mut k = 1;
-        while k <= self.n / 2 {
+        while k <= self.n / Self::B2 / 2 {
             for i in (0..k).rev() {
-                let tmp = up_tree_t[i].dual_mul_t(&self.mul_table[(k + i) * 2], &self.mul_table[(k + i) * 2 + 1]);
+                let tmp = up_tree_t[i].dual_mul_t(&self.upper_mul_table[(k + i) * 2], &self.upper_mul_table[(k + i) * 2 + 1]);
                 (up_tree_t[i * 2 + 1], up_tree_t[i * 2]) = tmp;
             }
             k *= 2;
         }
 
         let mut result = self.ring.from(1);
-        for i in 0..self.n {
-            result *= &up_tree_t[i].a[1];
+        for i in (0..self.n).step_by(Self::B2) {
+            let i2 = i / Self::B2;
+            for j in (1..Self::B2).rev() {
+                result *= up_tree_t[i2].mul_t_inv_monic_linear(&self.lower_mul_table[i + j]);
+                up_tree_t[i2].inplace_mul_t_monic_linear(&(-&self.a[i + j]));
+            }
+            result *= &up_tree_t[i2].mul_t_inv_monic_linear(&self.lower_mul_table[i]);
         }
         result
     }
