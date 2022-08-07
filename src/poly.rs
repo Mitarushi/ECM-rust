@@ -108,17 +108,19 @@ impl<'a> Poly<'a> {
         g
     }
 
-    pub fn mul_t(&self, x: &Self) -> Self {
+    pub fn small_mul_t(&self, x: &Self) -> Self {
         let c = self.len();
         let a = x.len();
         let b = c + 1 - a;
 
-        let rev_x = x.reverse();
-        let mut result = self * &rev_x;
-        result.set_len(a + b - 1, self.ring);
-        result.a = result.a[a - 1..a - 1 + b].to_vec();
+        let mut result = vec![self.ring.from(0); b];
+        for i in 0..b {
+            for (j, p) in x.a.iter().enumerate() {
+                result[i] += &self.a[i + j] * p;
+            }
+        }
 
-        result
+        Poly::new(result, self.ring)
     }
 
     pub fn dual_mul_t(&self, x1: &Self, x2: &Self) -> (Self, Self) {
@@ -126,6 +128,10 @@ impl<'a> Poly<'a> {
         let c = self.len();
         let a = x1.len();
         let b = c + 1 - a;
+
+        if a < 32 {
+            return (self.small_mul_t(x1), self.small_mul_t(x2));
+        }
 
         let mut x = x2.clone();
         x.set_len(c, self.ring);
