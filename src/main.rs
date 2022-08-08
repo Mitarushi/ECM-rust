@@ -48,6 +48,8 @@ fn cube<'a>(x: &'a Modulo<'a>) -> Modulo<'a> {
 
 fn clean_divisor(a: &Vec<UBig>, n: &UBig) -> Vec<UBig> {
     let mut result = vec![n.clone()];
+    result.sort();
+    result.dedup();
 
     for x in a.iter() {
         let mut idx = 0;
@@ -193,7 +195,7 @@ fn trial_division(n: &UBig, k: u64) -> (Vec<UBig>, UBig) {
     (primes, n)
 }
 
-fn pollard_rho(n: &UBig, k: u64, trial_num: u64, rng: &mut StdRng) -> Vec<UBig> {
+fn pollard_rho(n: &UBig, k: u64, trial_num: u64, thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
     let ring = ModuloRing::new(&n);
 
     let mut result = Vec::new();
@@ -202,10 +204,15 @@ fn pollard_rho(n: &UBig, k: u64, trial_num: u64, rng: &mut StdRng) -> Vec<UBig> 
         x * x + c
     }
 
-    for _ in 0..(trial_num / 50).max(1) {
-        let c = ring.from(rng.gen_range(ubig!(1)..n - 1));
+    let mut gen_params = |k: usize| {
+        (0..k).into_iter().map(|_| ring.from(rng.gen_range(ubig!(1)..n - 1))).collect::<Vec<_>>()
+    };
 
-        let mut a = ring.from(rng.gen_range(ubig!(1)..n - 1));
+    let test_run = (trial_num / 10).max(1);
+    let test = |a: Modulo, c: Modulo| {
+        let mut result = Vec::new();
+
+        let mut a = a;
         let mut b = a.clone();
 
         for _ in 0..k {
@@ -217,12 +224,16 @@ fn pollard_rho(n: &UBig, k: u64, trial_num: u64, rng: &mut StdRng) -> Vec<UBig> 
                 result.push(g);
             }
         }
-    }
 
-    for _ in 0..trial_num {
-        let c = ring.from(rng.gen_range(ubig!(1)..n - 1));
+        result.sort();
+        result.dedup();
+        result
+    };
 
-        let mut a = ring.from(rng.gen_range(ubig!(1)..n - 1));
+    let main = |a: Modulo, c: Modulo| {
+        let mut result = Vec::new();
+
+        let mut a = a;
         let mut b = a.clone();
 
         let mut g = ring.from(1);
@@ -237,33 +248,71 @@ fn pollard_rho(n: &UBig, k: u64, trial_num: u64, rng: &mut StdRng) -> Vec<UBig> 
         if &ubig!(1) < &g && &g < n {
             result.push(g);
         }
-    }
 
+        result.sort();
+        result.dedup();
+        result
+    };
+
+    for i in 0..1 {
+        let num = if i == 0 {
+            test_run
+        } else {
+            k
+        };
+
+        for _ in 0..(num as usize + thread_num - 1) / thread_num {
+            let a = gen_params(thread_num);
+            let c = gen_params(thread_num);
+
+            let ac = a.into_iter().zip(c.into_iter()).collect::<Vec<_>>();
+
+            let mut result_tmp = ac.into_par_iter().map(|(a, c)| {
+                if i == 0 {
+                    test(a, c)
+                } else {
+                    main(a, c)
+                }
+            }).collect::<Vec<_>>();
+
+            for i in result_tmp.iter_mut() {
+                result.append(i);
+            }
+        }
+    }
 
     println!("{:?}", result);
     clean_divisor(&result, n)
 }
 
-fn miller_rabin(n: &UBig, k: u64, rng: &mut StdRng) -> bool {
+fn miller_rabin(n: &UBig, k: u64, thread_num: usize, rng: &mut StdRng) -> bool {
     let ring = ModuloRing::new(&n);
     let d = (n - &ubig!(1)).trailing_zeros().unwrap();
     let s = (n - &ubig!(1)) >> d;
 
-    'outer: for _ in 0..k {
-        let a = ring.from(rng.gen_range(ubig!(2)..n.clone()));
+    let main = |a: Modulo| {
         let mut x = a.pow(&s);
 
         if &x.residue() == &ubig!(1) || &(&x.residue() + &ubig!(1)) == n {
-            continue;
+            return true;
         }
 
         for _ in 0..d - 1 {
             x = &x * &x;
             if &(&x.residue() + &ubig!(1)) == n {
-                continue 'outer;
+                return true;
             }
         }
-        return false;
+        false
+    };
+
+    for _ in 0..(k as usize + thread_num - 1) / thread_num {
+        let a_vec = (0..thread_num).into_iter().map(|_| ring.from(rng.gen_range(ubig!(2)..n.clone()))).collect::<Vec<_>>();
+        let result = a_vec.into_iter().map(|a| main(a)).collect::<Vec<_>>();
+
+        if result.into_iter().any(|x| !x) {
+            return false;
+        }
     }
     true
 }
@@ -293,20 +342,20 @@ fn pow_check(n: &UBig) -> Option<(UBig, usize)> {
     None
 }
 
-fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, rng: &mut StdRng) -> Vec<UBig> {
+fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
     if n == &ubig!(1) {
         return vec![];
     }
 
     let (p, k) = pow_check(&n).unwrap();
-    if miller_rabin(&p, 100, rng) {
+    if miller_rabin(&p, 100, thread_num, rng) {
         vec![p; k as usize]
     } else {
         let q = ecm(&p, b1, b2, d, 12, rng);
 
         let mut result = Vec::new();
         for p in q {
-            result.append(&mut factorize_sub(&p, b1, b2, d, rng));
+            result.append(&mut factorize_sub(&p, b1, b2, d, thread_num, rng));
             // result.push(p);
         }
 
@@ -318,14 +367,14 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, rng: &mut StdRng) -> Vec<UB
     }
 }
 
-fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, seed: Option<u64>) -> Vec<UBig> {
+fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, seed: Option<u64>) -> Vec<UBig> {
     let mut rng = StdRng::seed_from_u64(seed.unwrap_or_else(|| thread_rng().gen::<u64>()));
 
     let (mut result, n) = trial_division(n, 10000);
-    let result_pollard = pollard_rho(&n, 100000, 10, &mut rng);
+    let result_pollard = pollard_rho(&n, 100000, 12, thread_num, &mut rng);
 
     for i in result_pollard.into_iter() {
-        result.append(&mut factorize_sub(&i, b1, b2, d, &mut rng));
+        result.append(&mut factorize_sub(&i, b1, b2, d, thread_num, &mut rng));
     }
     result.sort();
     result
@@ -337,7 +386,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       200000, 10000000, 2310, Some(123456)));
+                                       200000, 10000000, 2310, 12, Some(1234567)));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
