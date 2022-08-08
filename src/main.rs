@@ -5,9 +5,8 @@ use std::time::Instant;
 use ibig::{ubig, UBig};
 use ibig::modular::{Modulo, ModuloRing};
 use rand::{Rng, SeedableRng, thread_rng};
+use rand::rngs::StdRng;
 use rayon::prelude::*;
-
-use rand_xoshiro::Xoshiro256StarStar;
 
 use crate::elliptic_curve::{EllipticCurve, EllipticPoint};
 use crate::poly::MultipointEvaluation;
@@ -67,13 +66,12 @@ fn clean_divisor(a: &Vec<UBig>, n: &UBig) -> Vec<UBig> {
     result
 }
 
-fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, rng: Xoshiro256StarStar) -> Option<UBig> {
-    let mut rng = rng;
-
+fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize) -> Option<UBig> {
     let ring = ModuloRing::new(&n);
     let primes = eratosthenes(b1);
 
-    let sigma = ring.from(rng.gen_range(6..1usize << 63));
+    assert!(sigma >= 6);
+    let sigma = ring.from(sigma);
     // let sigma = ring.from(UBig::from_str("8170945836124664").unwrap());
     println!("curve sigma: {:?}", sigma);
     let u = &sigma * &sigma - ring.from(5);
@@ -162,17 +160,12 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, rng: Xoshiro256StarStar) -> Optio
     None
 }
 
-fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, k: usize, rng: Xoshiro256StarStar) -> Vec<UBig> {
-    let mut rng = rng;
+fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
     loop {
-        let mut rng_vec = Vec::new();
-        for _ in 0..k {
-            rng_vec.push(rng.clone());
-            rng.jump();
-        }
+        let sigma_vec = (0..thread_num).into_iter().map(|_| rng.gen_range(6..1usize << 63)).collect::<Vec<_>>();
 
-        let result_tmp = rng_vec.into_par_iter().map(|r| {
-            ecm_sub(n, b1, b2, d, r)
+        let result_tmp = sigma_vec.into_par_iter().map(|sigma| {
+            ecm_sub(n, b1, b2, d, sigma)
         }).collect::<Vec<_>>();
 
         let is_end = result_tmp.iter().any(|x| x.is_some());
@@ -200,9 +193,7 @@ fn trial_division(n: &UBig, k: u64) -> (Vec<UBig>, UBig) {
     (primes, n)
 }
 
-fn pollard_rho(n: &UBig, k: u64, trial_num: u64, rng: Xoshiro256StarStar) -> Vec<UBig> {
-    let mut rng = rng;
-
+fn pollard_rho(n: &UBig, k: u64, trial_num: u64, rng: &mut StdRng) -> Vec<UBig> {
     let ring = ModuloRing::new(&n);
 
     let mut result = Vec::new();
@@ -253,8 +244,7 @@ fn pollard_rho(n: &UBig, k: u64, trial_num: u64, rng: Xoshiro256StarStar) -> Vec
     clean_divisor(&result, n)
 }
 
-fn miller_rabin(n: &UBig, k: u64, rng: Xoshiro256StarStar) -> bool {
-    let mut rng = rng;
+fn miller_rabin(n: &UBig, k: u64, rng: &mut StdRng) -> bool {
     let ring = ModuloRing::new(&n);
     let d = (n - &ubig!(1)).trailing_zeros().unwrap();
     let s = (n - &ubig!(1)) >> d;
@@ -303,26 +293,20 @@ fn pow_check(n: &UBig) -> Option<(UBig, usize)> {
     None
 }
 
-fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, rng: Xoshiro256StarStar) -> Vec<UBig> {
-    let mut rng = rng;
-
+fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, rng: &mut StdRng) -> Vec<UBig> {
     if n == &ubig!(1) {
         return vec![];
     }
 
     let (p, k) = pow_check(&n).unwrap();
-    if miller_rabin(&p, 100, rng.clone()) {
+    if miller_rabin(&p, 100, rng) {
         vec![p; k as usize]
     } else {
-        rng.jump();
-
-        let q = ecm(&p, b1, b2, d, 12, rng.clone());
-        rng.jump();
+        let q = ecm(&p, b1, b2, d, 12, rng);
 
         let mut result = Vec::new();
         for p in q {
-            result.append(&mut factorize_sub(&p, b1, b2, d, rng.clone()));
-            rng.jump();
+            result.append(&mut factorize_sub(&p, b1, b2, d, rng));
             // result.push(p);
         }
 
@@ -335,15 +319,13 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, rng: Xoshiro256StarStar) ->
 }
 
 fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, seed: Option<u64>) -> Vec<UBig> {
-    let mut rng = Xoshiro256StarStar::seed_from_u64(seed.unwrap_or_else(|| thread_rng().gen::<u64>()));
+    let mut rng = StdRng::seed_from_u64(seed.unwrap_or_else(|| thread_rng().gen::<u64>()));
 
     let (mut result, n) = trial_division(n, 10000);
-    let result_pollard = pollard_rho(&n, 100000, 10, rng.clone());
-    rng.jump();
+    let result_pollard = pollard_rho(&n, 100000, 10, &mut rng);
 
     for i in result_pollard.into_iter() {
-        result.append(&mut factorize_sub(&i, b1, b2, d, rng.clone()));
-        rng.jump();
+        result.append(&mut factorize_sub(&i, b1, b2, d, &mut rng));
     }
     result.sort();
     result
@@ -355,7 +337,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       200000, 10000000, 2310, Some(1234567)));
+                                       200000, 10000000, 2310, Some(123456)));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
