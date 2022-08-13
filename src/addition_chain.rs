@@ -73,14 +73,13 @@ pub fn compute_optimal_hint(n: u64) -> u64 {
     }
 
     let lo = (x as isize + min_block * BLOCK_SIZE as isize).max(1) as u32;
-    let mut optimal_hint = lo;
     for i in 0..BLOCK_SIZE {
         let a = (lo + i as u32).min(n as u32 - 1);
 
         if continued_fraction_len(n, a as u64) <= min_len {
-            optimal_hint = a;
+            return a as u64;
         }
     }
 
-    optimal_hint as u64
+    unreachable!();
 }
