@@ -21,6 +21,35 @@ impl<'a> EllipticPoint<'a> {
     pub fn affine_x(&self, ring: &'a ModuloRing) -> Modulo<'a> {
         &self.x * mod_inv(&self.z, ring)
     }
+
+    pub fn zero(ring: &'a ModuloRing) -> Self {
+        EllipticPoint::new(ring.from(1), ring.from(1))
+    }
+}
+
+enum ChainAddInfo {
+    AddToLeft,
+    AddToRight,
+}
+
+
+fn generate_chain(n: u64, hint: u64) -> Vec<ChainAddInfo> {
+    let mut result = Vec::new();
+    let mut p = n;
+    let mut q = hint;
+
+    while p != 1 || q != 1 {
+        if p > q {
+            result.push(ChainAddInfo::AddToLeft);
+            p -= q;
+        } else {
+            result.push(ChainAddInfo::AddToRight);
+            q -= p;
+        }
+    }
+
+    result.reverse();
+    result
 }
 
 impl<'a> EllipticCurve<'a> {
@@ -53,7 +82,7 @@ impl<'a> EllipticCurve<'a> {
 
     pub fn mul(&'a self, p: &EllipticPoint<'a>, n: u64, ring: &'a ModuloRing) -> EllipticPoint {
         if n == 0 {
-            return EllipticPoint::new(ring.from(0), ring.from(0));
+            return EllipticPoint::zero(ring);
         } else if n == 1 {
             return p.clone();
         } else if n == 2 {
@@ -79,5 +108,39 @@ impl<'a> EllipticCurve<'a> {
         } else {
             self.double_h(&u)
         }
+    }
+
+    pub fn mul_with_hint(&'a self, p: &EllipticPoint<'a>, n: u64, hint: u64, ring: &'a ModuloRing) -> EllipticPoint {
+        if n == 0 {
+            return EllipticPoint::zero(ring);
+        } else if n == 1 {
+            return p.clone();
+        }
+
+        let chain = generate_chain(n, hint);
+        let mut u = self.double_h(p);
+        let mut v = p.clone();
+        let mut t = p.clone();
+
+        match chain[0] {
+            ChainAddInfo::AddToRight => (u, v) = (v, u),
+            _ => (),
+        }
+
+        for c in chain.into_iter().skip(1) {
+            match c {
+                ChainAddInfo::AddToLeft => {
+                    let tmp = self.add_h(&u, &v, &t);
+                    t = u;
+                    u = tmp;
+                }
+                ChainAddInfo::AddToRight => {
+                    let tmp = self.add_h(&v, &u, &t);
+                    t = v;
+                    v = tmp;
+                }
+            }
+        }
+        u
     }
 }

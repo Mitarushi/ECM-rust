@@ -8,6 +8,7 @@ use rand::{Rng, SeedableRng, thread_rng};
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
+use crate::addition_chain::compute_optimal_hint;
 use crate::elliptic_curve::{EllipticCurve, EllipticPoint};
 use crate::poly::MultipointEvaluation;
 use crate::utils::{gcd, mod_inv};
@@ -15,6 +16,7 @@ use crate::utils::{gcd, mod_inv};
 mod elliptic_curve;
 mod poly;
 mod utils;
+mod addition_chain;
 
 fn eratosthenes(n: u64) -> Vec<u64> {
     let mut primes = vec![true; n as usize];
@@ -68,9 +70,8 @@ fn clean_divisor(a: &Vec<UBig>, n: &UBig) -> Vec<UBig> {
     result
 }
 
-fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize) -> Option<UBig> {
+fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>) -> Option<UBig> {
     let ring = ModuloRing::new(&n);
-    let primes = eratosthenes(b1);
 
     assert!(sigma >= 6);
     let sigma = ring.from(sigma);
@@ -94,14 +95,15 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize) -> Option<UBig> {
     let mut q = EllipticPoint::new(cube(&u), cube(&v));
     let curve = EllipticCurve::new(c, &ring);
 
-    for p in primes.iter() {
-        let p_pow = pow_less_than(*p, b1);
-        q = curve.mul(&q, p_pow, &ring);
+    for (p, hint) in step1_mul.iter().zip(step1_hint.iter()) {
+        q = curve.mul_with_hint(&q, *p, *hint, &ring);
     }
 
     let g = n.gcd(&q.z.residue());
     if &ubig!(1) < &g && &g < n {
         return Some(g);
+    } else if &g == n {
+        return None;
     }
 
     println!("hey!!!");
@@ -162,12 +164,13 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize) -> Option<UBig> {
     None
 }
 
-fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
+fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>,
+       thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
     loop {
         let sigma_vec = (0..thread_num).into_iter().map(|_| rng.gen_range(6..1usize << 63)).collect::<Vec<_>>();
 
         let result_tmp = sigma_vec.into_par_iter().map(|sigma| {
-            ecm_sub(n, b1, b2, d, sigma)
+            ecm_sub(n, b1, b2, d, sigma, step1_mul, step1_hint)
         }).collect::<Vec<_>>();
 
         let is_end = result_tmp.iter().any(|x| x.is_some());
@@ -342,7 +345,8 @@ fn pow_check(n: &UBig) -> Option<(UBig, usize)> {
     None
 }
 
-fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
+fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>,
+                 thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
     if n == &ubig!(1) {
         return vec![];
     }
@@ -351,12 +355,11 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, rng: &mu
     if miller_rabin(&p, 100, thread_num, rng) {
         vec![p; k as usize]
     } else {
-        let q = ecm(&p, b1, b2, d, 12, rng);
+        let q = ecm(&p, b1, b2, d, step1_mul, step1_hint, thread_num, rng);
 
         let mut result = Vec::new();
         for p in q {
-            result.append(&mut factorize_sub(&p, b1, b2, d, thread_num, rng));
-            // result.push(p);
+            result.append(&mut factorize_sub(&p, b1, b2, d, &step1_mul, &step1_hint, thread_num, rng));
         }
 
         let mut results = result.clone();
@@ -373,8 +376,12 @@ fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, seed: Option
     let (mut result, n) = trial_division(n, 10000);
     let result_pollard = pollard_rho(&n, 100000, 12, thread_num, &mut rng);
 
+    let prime_less_than_b1 = eratosthenes(b1);
+    let step1_mul = prime_less_than_b1.into_iter().map(|p| pow_less_than(p, b1)).collect::<Vec<_>>();
+    let step1_hint = step1_mul.iter().map(|x| compute_optimal_hint(x.clone())).collect::<Vec<_>>();
+
     for i in result_pollard.into_iter() {
-        result.append(&mut factorize_sub(&i, b1, b2, d, thread_num, &mut rng));
+        result.append(&mut factorize_sub(&i, b1, b2, d, &step1_mul, &step1_hint, thread_num, &mut rng));
     }
     result.sort();
     result
@@ -386,7 +393,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       200000, 10000000, 2310, 12, Some(1234567)));
+                                       200000, 10000000, 2310, 12, Some(1234567890)));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
