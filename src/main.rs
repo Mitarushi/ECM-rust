@@ -380,7 +380,7 @@ fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, seed: Option
 
     let prime_less_than_b1 = eratosthenes(b1);
     let step1_mul = prime_less_than_b1.into_iter().map(|p| pow_less_than(p, b1)).collect::<Vec<_>>();
-    let step1_hint = step1_mul.iter().map(|x| compute_optimal_hint(x.clone())).collect::<Vec<_>>();
+    let step1_hint = step1_mul.clone().into_par_iter().map(|x| compute_optimal_hint(x)).collect::<Vec<_>>();
 
     for i in result_pollard.into_iter() {
         result.append(&mut factorize_sub(&i, b1, b2, d, &step1_mul, &step1_hint, thread_num, &mut rng));
