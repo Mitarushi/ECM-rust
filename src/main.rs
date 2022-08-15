@@ -371,7 +371,9 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, step1_mul: &Vec<u64>, step1
 }
 
 fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, seed: Option<u64>) -> Vec<UBig> {
-    let mut rng = StdRng::seed_from_u64(seed.unwrap_or_else(|| thread_rng().gen::<u64>()));
+    let seed = seed.unwrap_or_else(|| thread_rng().gen::<u64>());
+    println!("seed: {}", seed);
+    let mut rng = StdRng::seed_from_u64(seed);
 
     let (mut result, n) = trial_division(n, 10000);
     let result_pollard = pollard_rho(&n, 100000, 12, thread_num, &mut rng);
@@ -393,7 +395,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       200000, 10000000, 2310, 12, Some(12345678)));
+                                       200000, 10000000, 2310, 12, None));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));
