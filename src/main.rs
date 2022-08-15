@@ -132,8 +132,8 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64
     let mut i = b1 / d + 1;
 
     let stride = curve.double_h(&q2);
-    let mut s = curve.mul(&q2, i, &ring);
-    let mut t = curve.mul(&q2, i - 2, &ring);
+    let mut s = curve.mul(&q2, i - 2, &ring);
+    let mut t = curve.mul(&q2, i, &ring);
 
     let mut h = ring.from(1);
 
@@ -144,11 +144,11 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64
         for _ in 0..k {
             let g = n.gcd(&s.z.residue());
             if &ubig!(1) == &g {
-                b.push(s.affine_x(&ring));
+                b.push(t.affine_x(&ring));
             } else if &g != n {
                 return Some(g);
             }
-            t = curve.add_h(&s, &stride, &t);
+            s = curve.add_h(&t, &stride, &s);
             swap(&mut s, &mut t);
             i += 2;
         }
@@ -393,7 +393,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       200000, 10000000, 2310, 12, Some(1234567890)));
+                                       200000, 10000000, 2310, 12, Some(12345678)));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));

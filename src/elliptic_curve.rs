@@ -23,7 +23,7 @@ impl<'a> EllipticPoint<'a> {
     }
 
     pub fn zero(ring: &'a ModuloRing) -> Self {
-        EllipticPoint::new(ring.from(1), ring.from(1))
+        EllipticPoint::new(ring.from(1), ring.from(0))
     }
 }
 

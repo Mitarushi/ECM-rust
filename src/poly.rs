@@ -65,7 +65,7 @@ impl<'a> Poly<'a> {
     fn large_mul(&self, rhs: &Self) -> Self {
         let n = self.len() + rhs.len() - 1;
         let max_plus = self.len().min(rhs.len());
-        let padding = self.mod_log * 2 + (64 - max_plus.leading_zeros() as usize) / 8;
+        let padding = self.mod_log * 2 + (64 - max_plus.leading_zeros() as usize) / 8 + 1;
         let a = self.to_rug(padding);
         let b = rhs.to_rug(padding);
         let mut result = Poly::from_rug(&(a * b), padding, self.ring);
