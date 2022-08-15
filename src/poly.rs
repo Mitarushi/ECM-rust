@@ -3,6 +3,7 @@ use ibig::modular::{Modulo, ModuloRing};
 use rug::{Integer, integer::Order};
 
 use crate::mod_inv;
+use crate::utils::bit_length;
 
 #[derive(Debug, Clone)]
 pub struct Poly<'a> {
@@ -13,7 +14,7 @@ pub struct Poly<'a> {
 
 impl<'a> Poly<'a> {
     pub fn new(a: Vec<Modulo<'a>>, ring: &'a ModuloRing) -> Self {
-        let mod_log = ring.modulus().bit_len() / 8 + 1;
+        let mod_log = ring.modulus().bit_len();
         Poly { a, ring, mod_log }
     }
 
@@ -65,7 +66,7 @@ impl<'a> Poly<'a> {
     fn large_mul(&self, rhs: &Self) -> Self {
         let n = self.len() + rhs.len() - 1;
         let max_plus = self.len().min(rhs.len());
-        let padding = self.mod_log * 2 + (64 - max_plus.leading_zeros() as usize) / 8 + 1;
+        let padding = (self.mod_log * 2 + bit_length(max_plus) as usize) / 8 + 1;
         let a = self.to_rug(padding);
         let b = rhs.to_rug(padding);
         let mut result = Poly::from_rug(&(a * b), padding, self.ring);

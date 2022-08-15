@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use crate::addition_chain::compute_optimal_hint;
 use crate::elliptic_curve::{EllipticCurve, EllipticPoint};
 use crate::poly::MultipointEvaluation;
-use crate::utils::{gcd, mod_inv};
+use crate::utils::{bit_length, gcd, mod_inv};
 
 mod elliptic_curve;
 mod poly;
@@ -75,7 +75,7 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64
 
     assert!(sigma >= 6);
     let sigma = ring.from(sigma);
-    // let sigma = ring.from(UBig::from_str("8170945836124664").unwrap());
+    // let sigma = ring.from(UBig::from_str("8689346476060549").unwrap());
     println!("curve sigma: {:?}", sigma);
     let u = &sigma * &sigma - ring.from(5);
     let v = &sigma * ring.from(4);
@@ -106,7 +106,7 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64
         return None;
     }
 
-    println!("hey!!!");
+    // println!("hey!!!");
 
     let mut s = q.clone();
     let mut t = curve.double_h(&s);
@@ -125,7 +125,7 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64
         swap(&mut s, &mut t);
     }
 
-    let k = 1 << (64 - a.len().leading_zeros());
+    let k = 1 << bit_length(a.len());
     a.resize(k, ring.from(1));
 
     let q2 = t;
@@ -395,7 +395,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       200000, 10000000, 2310, 12, None));
+                                       200000, 10000000, 2310, 12, Some(1234567890)));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));

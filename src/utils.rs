@@ -22,3 +22,7 @@ pub fn gcd(a: u64, b: u64) -> u64 {
         gcd(b, a % b)
     }
 }
+
+pub fn bit_length(n: usize) -> u32 {
+    64 - n.leading_zeros()
+}

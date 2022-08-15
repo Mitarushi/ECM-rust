@@ -91,7 +91,7 @@ impl<'a> EllipticCurve<'a> {
 
         let mut u = p.clone();
         let mut t = self.double_h(p);
-        let b = 64 - n.leading_zeros();
+        let b = n.leading_zeros();
 
         for j in (1..b - 1).rev() {
             if (n >> j) & 1 == 1 {
