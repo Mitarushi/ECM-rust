@@ -105,6 +105,5 @@ pub fn pollard_rho(n: &UBig, k: u64, trial_num: u64, thread_num: usize, rng: &mu
         }
     }
 
-    println!("{:?}", result);
     clean_divisor(&result, n)
 }
