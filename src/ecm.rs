@@ -15,8 +15,7 @@ fn ecm_sub(n: &UBig, _b1: u64, b2: u64, d: u64, k: u64, sigma: usize, step1_mul:
 
     assert!(sigma >= 6);
     let sigma = ring.from(sigma);
-    // let sigma = ring.from(UBig::from_str("8689346476060549").unwrap());
-    println!("curve sigma: {:?}", sigma);
+
     let u = &sigma * &sigma - ring.from(5);
     let v = &sigma * ring.from(4);
     let c_b = cube(&u) * &v * ring.from(4);
@@ -104,21 +103,28 @@ fn ecm_sub(n: &UBig, _b1: u64, b2: u64, d: u64, k: u64, sigma: usize, step1_mul:
 }
 
 pub fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>,
-       thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
-    loop {
-        let sigma_vec = (0..thread_num).into_iter().map(|_| rng.gen_range(6..1usize << 63)).collect::<Vec<_>>();
+           thread_num: usize, rng: &mut StdRng) -> Option<(Vec<usize>, Vec<UBig>)> {
+    let sigma_vec = (0..thread_num).into_iter().map(|_| rng.gen_range(6..1usize << 63)).collect::<Vec<_>>();
 
-        let result_tmp = sigma_vec.into_par_iter().map(|sigma| {
-            ecm_sub(n, b1, b2, d, k, sigma, step1_mul, step1_hint)
-        }).collect::<Vec<_>>();
+    let result_tmp = sigma_vec.par_iter().map(|sigma| {
+        ecm_sub(n, b1, b2, d, k, *sigma, step1_mul, step1_hint)
+    }).collect::<Vec<_>>();
 
-        let is_end = result_tmp.iter().any(|x| x.is_some());
-        if is_end {
-            let result = clean_divisor(&result_tmp.into_iter().filter_map(|x| x).collect(), n);
-            for x in result.iter() {
-                println!("divisor: {:?}", x);
-            }
-            return result;
-        }
+    let is_any = result_tmp.iter().any(|x| x.is_some());
+
+    if !is_any {
+        return None;
     }
+
+    let sigma_vec = result_tmp.iter().enumerate().filter_map(|(i, x)| {
+        if x.is_some() {
+            Some(sigma_vec[i])
+        } else {
+            None
+        }
+    }).collect::<Vec<_>>();
+
+    let factor_vec = clean_divisor(&result_tmp.into_iter().filter_map(|x| x).collect(), n);
+
+    Some((sigma_vec, factor_vec))
 }

@@ -64,6 +64,8 @@ pub fn clean_divisor(a: &Vec<UBig>, n: &UBig) -> Vec<UBig> {
         }
     }
 
+    result.sort();
+
     result
 }
 
