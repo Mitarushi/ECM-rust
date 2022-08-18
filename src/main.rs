@@ -1,4 +1,3 @@
-use std::mem::swap;
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -11,7 +10,7 @@ use rayon::prelude::*;
 use crate::addition_chain::compute_optimal_hint;
 use crate::elliptic_curve::{EllipticCurve, EllipticPoint};
 use crate::poly::MultipointEvaluation;
-use crate::utils::{bit_length, gcd, mod_inv};
+use crate::utils::{bit_length, mod_inv};
 
 mod elliptic_curve;
 mod poly;
@@ -70,7 +69,7 @@ fn clean_divisor(a: &Vec<UBig>, n: &UBig) -> Vec<UBig> {
     result
 }
 
-fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>) -> Option<UBig> {
+fn ecm_sub(n: &UBig, _b1: u64, b2: u64, d: u64, k: u64, sigma: usize, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>) -> Option<UBig> {
     let ring = ModuloRing::new(&n);
 
     assert!(sigma >= 6);
@@ -106,34 +105,30 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64
         return None;
     }
 
-    // println!("hey!!!");
+    let mut a = Vec::new();
+    let mut q2 = q.clone();
 
-    let mut s = q.clone();
-    let mut t = curve.double_h(&s);
-
-    let mut a = vec![-s.affine_x(&ring)];
-    for i in 2..d {
-        if gcd(i, d) == 1 {
-            let g = n.gcd(&t.z.residue());
-            if &ubig!(1) == &g {
-                a.push(-t.affine_x(&ring));
-            } else if &g != n {
-                return Some(g);
-            }
+    for i in 0..d {
+        let g = n.gcd(&q.z.residue());
+        if &ubig!(1) == &g {
+            a.push(-q.affine_x(&ring));
+        } else if &g != n {
+            return Some(g);
         }
-        s = curve.add_h(&t, &q, &s);
-        swap(&mut s, &mut t);
+
+        if i == d / 2 {
+            q2 = q.clone();
+        }
+
+        for _ in 0..k {
+            q = curve.triple_h(&q);
+        }
     }
 
-    let k = 1 << bit_length(a.len());
-    a.resize(k, ring.from(1));
+    let a_len = 1 << bit_length(a.len());
+    a.resize(a_len, ring.from(1));
 
-    let q2 = t;
-    let mut i = b1 / d + 1;
-
-    let stride = curve.double_h(&q2);
-    let mut s = curve.mul(&q2, i - 2, &ring);
-    let mut t = curve.mul(&q2, i, &ring);
+    let mut i = 0;
 
     let mut h = ring.from(1);
 
@@ -141,18 +136,21 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64
 
     while i * d < b2 {
         let mut b = Vec::new();
-        for _ in 0..k {
-            let g = n.gcd(&s.z.residue());
+        for _ in 0..a_len {
+            for _ in 0..k / 2 {
+                q2 = curve.double_h(&q2);
+            }
+
+            let g = n.gcd(&q2.z.residue());
             if &ubig!(1) == &g {
-                b.push(t.affine_x(&ring));
+                b.push(q2.affine_x(&ring));
             } else if &g != n {
                 return Some(g);
             }
-            s = curve.add_h(&t, &stride, &s);
-            swap(&mut s, &mut t);
-            i += 2;
+
+            i += 1;
         }
-        b.resize(k, ring.from(1));
+        b.resize(a_len, ring.from(1));
 
         h *= multi_eval.eval(&b);
     }
@@ -164,13 +162,13 @@ fn ecm_sub(n: &UBig, b1: u64, b2: u64, d: u64, sigma: usize, step1_mul: &Vec<u64
     None
 }
 
-fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>,
+fn ecm(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>,
        thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
     loop {
         let sigma_vec = (0..thread_num).into_iter().map(|_| rng.gen_range(6..1usize << 63)).collect::<Vec<_>>();
 
         let result_tmp = sigma_vec.into_par_iter().map(|sigma| {
-            ecm_sub(n, b1, b2, d, sigma, step1_mul, step1_hint)
+            ecm_sub(n, b1, b2, d, k, sigma, step1_mul, step1_hint)
         }).collect::<Vec<_>>();
 
         let is_end = result_tmp.iter().any(|x| x.is_some());
@@ -345,32 +343,32 @@ fn pow_check(n: &UBig) -> Option<(UBig, usize)> {
     None
 }
 
-fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>,
+fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, step1_mul: &Vec<u64>, step1_hint: &Vec<u64>,
                  thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
     if n == &ubig!(1) {
         return vec![];
     }
 
-    let (p, k) = pow_check(&n).unwrap();
+    let (p, pow) = pow_check(&n).unwrap();
     if miller_rabin(&p, 100, thread_num, rng) {
-        vec![p; k as usize]
+        vec![p; pow as usize]
     } else {
-        let q = ecm(&p, b1, b2, d, step1_mul, step1_hint, thread_num, rng);
+        let q = ecm(&p, b1, b2, d, k, step1_mul, step1_hint, thread_num, rng);
 
         let mut result = Vec::new();
         for p in q {
-            result.append(&mut factorize_sub(&p, b1, b2, d, &step1_mul, &step1_hint, thread_num, rng));
+            result.append(&mut factorize_sub(&p, b1, b2, d, k, &step1_mul, &step1_hint, thread_num, rng));
         }
 
         let mut results = result.clone();
-        for _ in 0..k - 1 {
+        for _ in 0..pow - 1 {
             results.append(&mut result.clone());
         }
         results
     }
 }
 
-fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, seed: Option<u64>) -> Vec<UBig> {
+fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, thread_num: usize, seed: Option<u64>) -> Vec<UBig> {
     let seed = seed.unwrap_or_else(|| thread_rng().gen::<u64>());
     println!("seed: {}", seed);
     let mut rng = StdRng::seed_from_u64(seed);
@@ -383,7 +381,7 @@ fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, thread_num: usize, seed: Option
     let step1_hint = step1_mul.clone().into_par_iter().map(|x| compute_optimal_hint(x)).collect::<Vec<_>>();
 
     for i in result_pollard.into_iter() {
-        result.append(&mut factorize_sub(&i, b1, b2, d, &step1_mul, &step1_hint, thread_num, &mut rng));
+        result.append(&mut factorize_sub(&i, b1, b2, d, k, &step1_mul, &step1_hint, thread_num, &mut rng));
     }
     result.sort();
     result
@@ -395,7 +393,7 @@ fn main() {
     // println!("{:?}", eratosthenes(100));
     let start_time = Instant::now();
     println!("result: {:?}", factorize(&UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap(),
-                                       200000, 10000000, 2310, 12, Some(1234567890)));
+                                       200000, 10000000, 2048, 12, 12, Some(1234)));
     println!("time: {:?}", start_time.elapsed());
 
     // println!("{:?}", modinv(&BigInt::from(3456757u64), &BigInt::from(5567544567843u64)));

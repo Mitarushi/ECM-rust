@@ -1,6 +1,6 @@
 use ibig::modular::{Modulo, ModuloRing};
 
-use crate::mod_inv;
+use crate::{bit_length, mod_inv};
 
 #[derive(Debug, Clone)]
 pub struct EllipticPoint<'a> {
@@ -80,7 +80,26 @@ impl<'a> EllipticCurve<'a> {
         EllipticPoint { x, z }
     }
 
-    pub fn mul(&'a self, p: &EllipticPoint<'a>, n: u64, ring: &'a ModuloRing) -> EllipticPoint {
+    pub fn triple_h(&'a self, p: &EllipticPoint<'a>) -> EllipticPoint {
+        let u1 = &p.x + &p.z;
+        let u = &u1 * &u1;
+        let v1 = &p.x - &p.z;
+        let v = &v1 * &v1;
+        let k = &u - &v;
+        let x = &u * &v;
+        let z = &k * (&self.c * &k + &v);
+
+        let t1 = (&x - &z) * &u1;
+        let t2 = (&x + &z) * &v1;
+        let t = &t1 + &t2;
+        let x = &t * &t * &p.z;
+        let t = &t1 - &t2;
+        let z = &t * &t * &p.x;
+
+        EllipticPoint { x, z }
+    }
+
+    pub fn _mul(&'a self, p: &EllipticPoint<'a>, n: u64, ring: &'a ModuloRing) -> EllipticPoint {
         if n == 0 {
             return EllipticPoint::zero(ring);
         } else if n == 1 {
@@ -91,7 +110,7 @@ impl<'a> EllipticCurve<'a> {
 
         let mut u = p.clone();
         let mut t = self.double_h(p);
-        let b = n.leading_zeros();
+        let b = bit_length(n as usize);
 
         for j in (1..b - 1).rev() {
             if (n >> j) & 1 == 1 {

@@ -15,14 +15,6 @@ fn mod_inv_ubig(a: &UBig, n: &UBig) -> UBig {
     }
 }
 
-pub fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
-}
-
 pub fn bit_length(n: usize) -> u32 {
-    64 - n.leading_zeros()
+    64 - (n - 1).leading_zeros()
 }
