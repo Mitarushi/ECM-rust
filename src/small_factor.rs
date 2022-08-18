@@ -20,6 +20,10 @@ pub fn trial_division(n: &UBig, k: u64) -> (Vec<UBig>, UBig) {
 }
 
 pub fn pollard_rho(n: &UBig, k: u64, trial_num: u64, thread_num: usize, rng: &mut StdRng) -> Vec<UBig> {
+    if n == &ubig!(1) {
+        return Vec::new();
+    }
+
     let ring = ModuloRing::new(&n);
 
     let mut result = Vec::new();

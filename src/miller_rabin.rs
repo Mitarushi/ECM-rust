@@ -4,6 +4,13 @@ use rand::Rng;
 use rand::rngs::StdRng;
 
 pub fn miller_rabin(n: &UBig, k: u64, thread_num: usize, rng: &mut StdRng) -> bool {
+    if n == &ubig!(1) {
+        return false;
+    }
+    if n == &ubig!(2) {
+        return true;
+    }
+
     let ring = ModuloRing::new(&n);
     let d = (n - &ubig!(1)).trailing_zeros().unwrap();
     let s = (n - &ubig!(1)) >> d;
