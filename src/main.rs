@@ -56,7 +56,7 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, step1_mul: &Vec<u64
             let t = ecm(&p, b1, b2, d, k, step1_mul, step1_hint, thread_num, rng);
             let elapsed = start.elapsed();
 
-            println!("factorize attempt count : {} (total : {})  time: {:?}", attempt_count_local, *attempt_count, elapsed);
+            println!("factorize attempt count : {} (total : {})  time : {:?}", attempt_count_local, *attempt_count, elapsed);
 
             if let Some(t) = t {
                 break t;
