@@ -24,9 +24,9 @@ mod ecm;
 
 
 fn print_factors(n: &UBig, factors: &Vec<UBig>, is_prime: &Vec<bool>) {
-    println!("{} =", n);
+    println!("{}", n);
     for (idx, factor) in factors.iter().enumerate() {
-        print!("\t{}", if idx == 0 { "   " } else { " x " });
+        print!("\t{}", if idx == 0 { " = " } else { " x " });
         let f = factor.to_string();
         print!("{} ({} digits", f, f.len());
         print!(", {}", if is_prime[idx] { "prime" } else { "composite" });
