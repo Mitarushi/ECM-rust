@@ -1,10 +1,11 @@
-use std::str::FromStr;
 use std::time::Instant;
 
 use ibig::{ubig, UBig};
 use rand::{Rng, SeedableRng, thread_rng};
 use rand::rngs::StdRng;
 use rayon::prelude::*;
+
+use clap::{App, Arg};
 
 use crate::addition_chain::compute_optimal_hint;
 use crate::ecm::ecm;
@@ -129,13 +130,52 @@ fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, thread_num: usize, seed
 
 
 fn main() {
+    let args = App::new("ecm-factorize")
+        .version("1.0.0")
+        .about("factorize a number using elliptic curve method")
+        .arg(Arg::with_name("n")
+            .help("the number to factorize")
+            .required(true)
+            .index(1))
+        .arg(Arg::with_name("b1")
+            .help("the bound of primes in the step 1")
+            .required(true)
+            .index(2))
+        .arg(Arg::with_name("b2")
+            .help("the bound of primes in the step 2")
+            .required(true)
+            .index(3))
+        .arg(Arg::with_name("d")
+            .help("the chunk size of the step 2")
+            .required(true)
+            .index(4))
+        .arg(Arg::with_name("k")
+            .help("the degree of power used in the step 2")
+            .required(true)
+            .index(5))
+        .arg(Arg::with_name("thread_num")
+            .help("the number of threads to use")
+            .required(true)
+            .index(6))
+        .arg(Arg::with_name("seed")
+            .help("the seed to use")
+            .index(7));
+
+    let matches = args.get_matches();
+
+    let n = matches.value_of("n").unwrap().parse::<UBig>().unwrap();
+    let b1 = matches.value_of("b1").unwrap().parse::<u64>().unwrap();
+    let b2 = matches.value_of("b2").unwrap().parse::<u64>().unwrap();
+    let d = matches.value_of("d").unwrap().parse::<u64>().unwrap();
+    let k = matches.value_of("k").unwrap().parse::<u64>().unwrap();
+    let thread_num = matches.value_of("thread_num").unwrap().parse::<usize>().unwrap();
+    let seed = matches.value_of("seed").unwrap_or("").parse::<u64>().ok();
+
     let start_time = Instant::now();
-
-    let n = UBig::from_str("80427986006548719345734277061642961255483479451898174913334233451837185870754385758443884847722358799624627731366765897016214754703609284701416196686549586239348289393647215802294201509804807138090632288262303176923371025445121").unwrap();
-
-    let result = factorize(&n, 200000, 10000000, 2048, 12, 12, Some(1234));
+    let result = factorize(&n, b1, b2, d, k, thread_num, seed);
+    let elapsed = start_time.elapsed();
 
     println!("result : ");
     print_factors(&n, &result, &vec![true; result.len()]);
-    println!("process time: {:?}", start_time.elapsed());
+    println!("process time: {:?}", elapsed);
 }
