@@ -42,10 +42,18 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, step1_mul: &Vec<u64
     }
 
     let (p, pow) = pow_check(&n).unwrap();
-    if miller_rabin(&p, 100, thread_num, rng) {
+    let is_prime = miller_rabin(&n, 100, thread_num, rng);
+
+    if pow > 1 {
+        println!("{} th root found", pow);
+        print_factors(n, &vec![p.clone(); pow], &vec![is_prime; pow]);
+        println!();
+    }
+
+    if is_prime {
         vec![p; pow as usize]
     } else {
-        println!("factorizing : {}", n);
+        println!("factorizing : {}", p);
 
         let mut attempt_count_local = 0;
         let (sigma, factor) = loop {
@@ -66,7 +74,7 @@ fn factorize_sub(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, step1_mul: &Vec<u64
         let is_prime = factor.iter().map(|f| miller_rabin(f, 100, thread_num, rng)).collect::<Vec<_>>();
 
         println!("factors found : ");
-        print_factors(n, &factor, &is_prime);
+        print_factors(&p, &factor, &is_prime);
         println!("sigma : {:?}", sigma);
         println!();
 
@@ -123,7 +131,7 @@ fn factorize(n: &UBig, b1: u64, b2: u64, d: u64, k: u64, thread_num: usize, seed
 fn main() {
     let start_time = Instant::now();
 
-    let n = UBig::from_str("283598282799012588354313727318318100165490374946550831678436461954855068456871761675152071482710347887068874127489").unwrap();
+    let n = UBig::from_str("80427986006548719345734277061642961255483479451898174913334233451837185870754385758443884847722358799624627731366765897016214754703609284701416196686549586239348289393647215802294201509804807138090632288262303176923371025445121").unwrap();
 
     let result = factorize(&n, 200000, 10000000, 2048, 12, 12, Some(1234));
 

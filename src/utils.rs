@@ -91,5 +91,5 @@ pub fn pow_check(n: &UBig) -> Option<(UBig, usize)> {
             return Some((root, k));
         }
     }
-    None
+    unreachable!();
 }
